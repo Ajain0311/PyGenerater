@@ -144,10 +144,11 @@ class TopicRepo:
 
     def bulk_insert_new(self, topics: list[dict]) -> int:
         """Insert topics that don't already exist. Returns count inserted."""
+        valid = {c.name for c in Topic.__table__.columns}
         inserted = 0
         for t in topics:
             if not self.exists(t["keyword"]):
-                self.session.add(Topic(**t))
+                self.session.add(Topic(**{k: v for k, v in t.items() if k in valid}))
                 inserted += 1
         self.session.commit()
         return inserted
