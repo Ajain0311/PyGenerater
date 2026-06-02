@@ -11,8 +11,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
-def _ok(msg: str): print(f"  ✅ {msg}")
-def _fail(msg: str, err: str): print(f"  ❌ {msg}: {err}")
+def _ok(msg: str): print(f"  [OK]  {msg}")
+def _fail(msg: str, err: str): print(f"  [ERR] {msg}: {err}")
 
 
 def test_config():
@@ -55,11 +55,10 @@ def test_trends():
 def test_gemini():
     print("\n[4] Gemini API")
     try:
-        import google.generativeai as genai
+        from google import genai
         from src.config import config
-        genai.configure(api_key=config.GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        resp = model.generate_content("Say 'ok' in 1 word.")
+        client = genai.Client(api_key=config.GEMINI_API_KEY)
+        resp = client.models.generate_content(model="gemini-2.0-flash", contents="Say ok in 1 word.")
         _ok(f"Gemini API OK | response: {resp.text.strip()!r}")
     except Exception as e:
         _fail("Gemini", str(e))
@@ -96,7 +95,7 @@ def test_moviepy():
     print("\n[7] MoviePy")
     try:
         import moviepy
-        from moviepy.editor import ColorClip
+        from moviepy import ColorClip
         clip = ColorClip((100, 100), color=(0, 255, 0), duration=0.1)
         clip.close()
         _ok(f"MoviePy OK | version {moviepy.__version__}")

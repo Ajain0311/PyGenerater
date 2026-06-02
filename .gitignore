@@ -59,3 +59,4 @@ desktop.ini
 
 # Setup scripts with potential credentials (run locally, never commit)
 scripts/github_setup.py
+RUN_SETUP_ONCE.ps1

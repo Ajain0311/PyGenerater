@@ -5,6 +5,19 @@ from __future__ import annotations
 import time
 from typing import Any
 
+# Patch urllib3 2.x incompatibility with pytrends (method_whitelist removed in urllib3 2.0)
+try:
+    import urllib3.util.retry as _r
+    if not getattr(_r.Retry, "_patched_for_pytrends", False):
+        _orig = _r.Retry.__init__
+        def _patched(self, *a, **kw):
+            kw.pop("method_whitelist", None)
+            _orig(self, *a, **kw)
+        _r.Retry.__init__ = _patched
+        _r.Retry._patched_for_pytrends = True
+except Exception:
+    pass
+
 from pytrends.request import TrendReq
 
 from src.analytics import score_topic, rank_topics
@@ -20,7 +33,11 @@ class TrendsFetcher:
 
     def _client(self) -> TrendReq:
         if self._pt is None:
-            self._pt = TrendReq(hl="en-US", tz=330, timeout=(10, 25), retries=2, backoff_factor=0.5)
+            try:
+                # pytrends uses method_whitelist which was renamed in urllib3 2.x
+                self._pt = TrendReq(hl="en-US", tz=330, timeout=(10, 25), retries=2, backoff_factor=0.5)
+            except TypeError:
+                self._pt = TrendReq(hl="en-US", tz=330, timeout=(10, 25))
         return self._pt
 
     @api_retry(max_attempts=3, wait_min=5, wait_max=60, exceptions=(Exception,))
@@ -61,34 +78,92 @@ class TrendsFetcher:
             log.warning("Real-time trends failed (%s), falling back to daily trends", e)
             return self._fetch_daily(geo)
 
+    # pytrends trending_searches() uses full country names, not ISO codes
+    _GEO_TO_COUNTRY = {
+        "IN": "india", "US": "united_states", "GB": "united_kingdom",
+        "AU": "australia", "CA": "canada", "SG": "singapore",
+        "DE": "germany", "FR": "france", "JP": "japan", "BR": "brazil",
+    }
+
     def _fetch_daily(self, geo: str) -> list[dict[str, Any]]:
-        """Fallback: daily trending searches."""
+        """Fallback 1: daily trending searches via pytrends."""
         pt = self._client()
+        country = self._GEO_TO_COUNTRY.get(geo.upper(), geo.lower())
         try:
-            df = pt.trending_searches(pn=geo.lower())
+            df = pt.trending_searches(pn=country)
             topics: list[dict[str, Any]] = []
             seen: set[str] = set()
-
             for val in df[0].tolist():
                 keyword = str(val).strip()
                 if not keyword or keyword in seen:
                     continue
                 seen.add(keyword)
-                topics.append(
-                    {
-                        "keyword": keyword,
-                        "category": "trending",
-                        "geo": geo,
-                        "related_queries": [],
-                        "source": "daily",
-                    }
-                )
+                topics.append({"keyword": keyword, "category": "trending",
+                               "geo": geo, "related_queries": [], "source": "daily"})
+            if topics:
+                log.info("Fetched %d daily topics", len(topics))
+                return topics[:config.TRENDS_COUNT]
+        except Exception as e:
+            log.warning("pytrends daily fetch failed: %s — trying RSS", e)
 
-            log.info("Fetched %d daily topics", len(topics))
+        # Fallback 2: Google Trends RSS (official public feed)
+        rss_topics = self._fetch_rss(geo)
+        if rss_topics:
+            return rss_topics
+
+        # Fallback 3: Curated India seed topics (always available)
+        log.warning("All trend sources failed. Using curated seed topics.")
+        return self._seed_topics(geo)
+
+    def _fetch_rss(self, geo: str) -> list[dict[str, Any]]:
+        """Google Trends daily RSS — public endpoint, no auth required."""
+        import xml.etree.ElementTree as ET
+        import requests as req
+        try:
+            url = f"https://trends.google.com/trends/trendingsearches/daily/rss?geo={geo}"
+            resp = req.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            root = ET.fromstring(resp.content)
+            topics: list[dict[str, Any]] = []
+            for item in root.findall(".//item"):
+                title_el = item.find("title")
+                if title_el is None or not title_el.text:
+                    continue
+                topics.append({"keyword": title_el.text.strip(), "category": "trending",
+                               "geo": geo, "related_queries": [], "source": "rss"})
+            log.info("Fetched %d topics from Trends RSS", len(topics))
             return topics[:config.TRENDS_COUNT]
         except Exception as e:
-            log.error("Daily trends also failed: %s", e)
+            log.warning("Trends RSS failed: %s", e)
             return []
+
+    @staticmethod
+    def _seed_topics(geo: str) -> list[dict[str, Any]]:
+        """Curated evergreen Indian trending topics as final fallback."""
+        seeds = [
+            ("IPL 2025 Live Score", "sports"),
+            ("Bollywood New Movie Release", "entertainment"),
+            ("India vs Pakistan Cricket", "sports"),
+            ("AI Technology India 2025", "technology"),
+            ("Stock Market India Today", "finance"),
+            ("Jio New Plan 2025", "technology"),
+            ("Modi Government Budget", "politics"),
+            ("Viral Video India Today", "entertainment"),
+            ("India Weather Monsoon", "weather"),
+            ("Indian Startup Funding", "business"),
+            ("Prabhas New Movie", "entertainment"),
+            ("UPSC Exam Result 2025", "education"),
+            ("Delhi Metro New Line", "infrastructure"),
+            ("Reliance Industries News", "business"),
+            ("India Space Mission ISRO", "science"),
+            ("Bigg Boss Season Winner", "entertainment"),
+            ("Gold Rate India Today", "finance"),
+            ("India Olympic Medal", "sports"),
+            ("Deepfake AI Awareness", "technology"),
+            ("Yoga Health Benefits", "health"),
+        ]
+        return [{"keyword": k, "category": c, "geo": geo,
+                 "related_queries": [], "source": "seed"} for k, c in seeds]
 
     def fetch_related_queries(self, keyword: str) -> dict[str, Any]:
         """Get related queries and search volume for a keyword."""
