@@ -81,16 +81,26 @@ jobs:
       # ── Run the pipeline ──────────────────────────────────────────────────
       - name: Run Shorts generator pipeline
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          GEMINI_API_KEY:    ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2:  ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3:  ${{ secrets.GEMINI_API_KEY_3 }}
+          GEMINI_API_KEY_4:  ${{ secrets.GEMINI_API_KEY_4 }}
+          GEMINI_API_KEY_5:  ${{ secrets.GEMINI_API_KEY_5 }}
+          GEMINI_API_KEY_6:  ${{ secrets.GEMINI_API_KEY_6 }}
+          GEMINI_API_KEY_7:  ${{ secrets.GEMINI_API_KEY_7 }}
+          GEMINI_API_KEY_8:  ${{ secrets.GEMINI_API_KEY_8 }}
+          GEMINI_API_KEY_9:  ${{ secrets.GEMINI_API_KEY_9 }}
+          GEMINI_API_KEY_10: ${{ secrets.GEMINI_API_KEY_10 }}
+          GEMINI_MODEL:      ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
-          TRENDS_GEO: ${{ vars.TRENDS_GEO || 'IN' }}
+          UNSPLASH_ACCESS_KEY:   ${{ secrets.UNSPLASH_ACCESS_KEY }}
+          TRENDS_GEO:             ${{ vars.TRENDS_GEO || 'IN' }}
           YOUTUBE_PRIVACY_STATUS: ${{ vars.YOUTUBE_PRIVACY_STATUS || 'public' }}
-          SHORTS_PER_RUN: ${{ github.event.inputs.n_shorts || vars.SHORTS_PER_RUN || '1' }}
-          CHANNEL_NAME: ${{ vars.CHANNEL_NAME || 'TrendSnap AI' }}
-          CHANNEL_WATERMARK: ${{ vars.CHANNEL_WATERMARK || '@TrendSnapAI' }}
+          SHORTS_PER_RUN:         ${{ github.event.inputs.n_shorts || vars.SHORTS_PER_RUN || '1' }}
+          CHANNEL_NAME:           ${{ vars.CHANNEL_NAME || 'Aditya Dhing' }}
+          CHANNEL_WATERMARK:      ${{ vars.CHANNEL_WATERMARK || '@AdityaDhing' }}
           LOG_LEVEL: INFO
         run: |
           ARGS=""
