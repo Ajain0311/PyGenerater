@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environment & secrets
+.env
+*.env.local
+client_secrets.json
+youtube_token.json
+
+# Generated content (don't commit large media files)
+generated/audio/*.mp3
+generated/images/*.jpg
+generated/images/*.png
+generated/videos/*.mp4
+generated/thumbnails/*.jpg
+
+# Keep folder structure
+!generated/audio/.gitkeep
+!generated/images/.gitkeep
+!generated/videos/.gitkeep
+!generated/thumbnails/.gitkeep
+
+# Database (do NOT ignore — persisted via GitHub cache action)
+# data/app.db
+
+# Logs
+logs/*.log
+!logs/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Setup scripts with potential credentials (run locally, never commit)
+scripts/github_setup.py

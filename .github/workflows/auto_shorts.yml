@@ -1,0 +1,157 @@
+name: Auto YouTube Shorts Generator
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Custom topic (leave empty for auto trending)"
+        required: false
+        default: ""
+      n_shorts:
+        description: "Number of Shorts to generate (1-5)"
+        required: false
+        default: "1"
+      skip_upload:
+        description: "Skip YouTube upload (generate only)"
+        required: false
+        default: "false"
+        type: boolean
+      dry_run:
+        description: "Dry run (content generation only)"
+        required: false
+        default: "false"
+        type: boolean
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  generate-and-upload:
+    name: Generate & Upload YouTube Shorts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Restore SQLite database (persist between runs) ────────────────────
+      - name: Restore database cache
+        uses: actions/cache@v4
+        with:
+          path: data/app.db
+          key: shorts-db-${{ runner.os }}-${{ github.ref_name }}
+          restore-keys: |
+            shorts-db-${{ runner.os }}-
+
+      # ── System dependencies ───────────────────────────────────────────────
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg \
+            libsm6 \
+            libxext6 \
+            libfontconfig1 \
+            fonts-dejavu-core \
+            fonts-liberation \
+            imagemagick
+
+      # ── Python setup ──────────────────────────────────────────────────────
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ── Create directory structure ────────────────────────────────────────
+      - name: Create required directories
+        run: |
+          mkdir -p data logs generated/audio generated/images generated/videos generated/thumbnails
+
+      # ── Run the pipeline ──────────────────────────────────────────────────
+      - name: Run Shorts generator pipeline
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
+          TRENDS_GEO: ${{ vars.TRENDS_GEO || 'IN' }}
+          YOUTUBE_PRIVACY_STATUS: ${{ vars.YOUTUBE_PRIVACY_STATUS || 'public' }}
+          SHORTS_PER_RUN: ${{ github.event.inputs.n_shorts || vars.SHORTS_PER_RUN || '1' }}
+          CHANNEL_NAME: ${{ vars.CHANNEL_NAME || 'TrendSnap AI' }}
+          CHANNEL_WATERMARK: ${{ vars.CHANNEL_WATERMARK || '@TrendSnapAI' }}
+          LOG_LEVEL: INFO
+        run: |
+          ARGS=""
+
+          # Topic override
+          if [ -n "${{ github.event.inputs.topic }}" ]; then
+            ARGS="$ARGS --topic '${{ github.event.inputs.topic }}'"
+          fi
+
+          # n shorts
+          if [ -n "${{ github.event.inputs.n_shorts }}" ]; then
+            ARGS="$ARGS --n ${{ github.event.inputs.n_shorts }}"
+          fi
+
+          # skip upload flag
+          if [ "${{ github.event.inputs.skip_upload }}" = "true" ]; then
+            ARGS="$ARGS --skip-upload"
+          fi
+
+          # dry run flag
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+
+          echo "Running: python main.py $ARGS"
+          eval "python main.py $ARGS"
+
+      # ── Upload artifacts (generated files) ───────────────────────────────
+      - name: Upload generated videos as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-shorts-${{ github.run_number }}
+          path: |
+            generated/videos/*.mp4
+            generated/thumbnails/*.jpg
+            logs/app.log
+          retention-days: 7
+          if-no-files-found: warn
+
+      # ── Upload logs on failure ────────────────────────────────────────────
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-logs-${{ github.run_number }}
+          path: logs/app.log
+          retention-days: 14
+
+      # ── Summary ───────────────────────────────────────────────────────────
+      - name: Job summary
+        if: always()
+        run: |
+          echo "## 🎬 YouTube Shorts Generator" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Run # | ${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered by | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Topic | ${{ github.event.inputs.topic || 'Auto (trending)' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Geo | ${{ vars.TRENDS_GEO || 'IN' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Shorts per run | ${{ github.event.inputs.n_shorts || vars.SHORTS_PER_RUN || '1' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check the **Artifacts** section above to download generated videos." >> $GITHUB_STEP_SUMMARY
