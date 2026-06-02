@@ -56,13 +56,12 @@ def run_pipeline(
         existing = topic_repo.all_keywords()
         raw_topics = fetcher.get_scored_topics(exclude_keywords=existing)
 
-        if not raw_topics:
-            log.warning("No new topics found. Exiting.")
-            return []
-
-        inserted = topic_repo.bulk_insert_new(raw_topics)
-        analytics_repo.increment("topics_fetched", inserted)
-        log.info("Inserted %d new topics into DB", inserted)
+        if raw_topics:
+            inserted = topic_repo.bulk_insert_new(raw_topics)
+            analytics_repo.increment("topics_fetched", inserted)
+            log.info("Inserted %d new topics into DB", inserted)
+        else:
+            log.info("No new topics from trends — using unprocessed topics from DB.")
 
         topics_to_process = [
             {"keyword": t.keyword, "score": t.score, "category": t.category, "id": t.id}
