@@ -34,19 +34,9 @@ def _gradient(img: Image.Image, c1: tuple, c2: tuple) -> Image.Image:
     return img
 
 
-def _try_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    candidates = [
-        "arial.ttf", "Arial.ttf",
-        "DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/System/Library/Fonts/Helvetica.ttc",
-    ]
-    for path in candidates:
-        try:
-            return ImageFont.truetype(path, size)
-        except (IOError, OSError):
-            continue
-    return ImageFont.load_default()
+def _try_font(size: int):
+    from src.utils import get_font
+    return get_font(size, bold=True)
 
 
 def _draw_text_with_shadow(
@@ -129,42 +119,48 @@ class ThumbnailGenerator:
 
         draw = ImageDraw.Draw(img, "RGBA")
 
-        # Top bar accent
-        draw.rectangle([(0, 0), (THUMB_W, 12)], fill=(*theme[3], 255))
-        draw.rectangle([(0, THUMB_H - 12), (THUMB_W, THUMB_H)], fill=(*theme[3], 255))
+        # Bold diagonal accent stripe across top-left
+        draw.polygon([(0, 0), (THUMB_W, 0), (THUMB_W, 30), (0, 90)], fill=(*theme[3], 255))
 
-        # TRENDING badge
-        badge_font = _try_font(48)
-        draw.rounded_rectangle([(50, 80), (380, 150)], radius=15, fill=(*theme[3], 230))
-        draw.text((215, 115), "🔥 TRENDING", font=badge_font, fill=(0, 0, 0), anchor="mm")
+        # VIRAL badge — top-right corner
+        badge_font = _try_font(52)
+        bx, by = THUMB_W - 320, 40
+        draw.rounded_rectangle([(bx, by), (bx + 280, by + 76)], radius=18, fill=(220, 0, 0, 240))
+        draw.text((bx + 140, by + 38), "VIRAL FACTS", font=badge_font, fill=(255,255,255), anchor="mm")
 
-        # Main title (large)
-        title_font = _try_font(130)
+        # Main title — large, bold, centred, with heavy drop shadow
+        title_font = _try_font(148)
+        title_text = thumbnail_text.upper()
         _draw_text_with_shadow(
-            draw, thumbnail_text.upper(),
-            (THUMB_W // 2, 300),
-            title_font, theme[2], shadow_offset=6
+            draw, title_text, (THUMB_W // 2, 280),
+            title_font, (255, 255, 255), shadow_offset=8
         )
 
-        # Sub-topic line
-        sub_font = _try_font(68)
+        # Accent underline below title
+        draw.rounded_rectangle([(120, 700), (THUMB_W - 120, 724)], radius=8, fill=(*theme[3], 255))
+
+        # Topic label
+        sub_font = _try_font(72)
         _draw_text_with_shadow(
-            draw, topic,
-            (THUMB_W // 2, 800),
-            sub_font, (*theme[3], 255), shadow_offset=3
+            draw, topic.upper(), (THUMB_W // 2, 780),
+            sub_font, (*theme[3], 255), shadow_offset=4
         )
 
-        # Shorts logo area
-        logo_font = _try_font(55)
+        # "WATCH NOW" CTA box at bottom third
+        cta_font = _try_font(64)
+        cta_y = int(THUMB_H * 0.72)
         draw.rounded_rectangle(
-            [(THUMB_W // 2 - 200, THUMB_H - 250), (THUMB_W // 2 + 200, THUMB_H - 150)],
-            radius=20, fill=(255, 0, 0, 220)
+            [(THUMB_W // 2 - 260, cta_y), (THUMB_W // 2 + 260, cta_y + 90)],
+            radius=25, fill=(*theme[3], 240)
         )
-        draw.text((THUMB_W // 2, THUMB_H - 200), "▶  SHORTS", font=logo_font, fill=(255, 255, 255), anchor="mm")
+        draw.text((THUMB_W // 2, cta_y + 45), "▶  WATCH NOW", font=cta_font,
+                  fill=(0, 0, 0), anchor="mm")
 
-        # Channel watermark
-        wm_font = _try_font(45)
-        draw.text((THUMB_W // 2, THUMB_H - 80), config.CHANNEL_WATERMARK, font=wm_font, fill=(200, 200, 200), anchor="mm")
+        # Bottom: channel watermark
+        wm_font = _try_font(48)
+        draw.text((THUMB_W // 2, THUMB_H - 60), config.CHANNEL_WATERMARK,
+                  font=wm_font, fill=(220, 220, 220), anchor="mm",
+                  stroke_width=3, stroke_fill=(0, 0, 0, 200))
 
         img.save(out_path, "JPEG", quality=95)
         log.info("Thumbnail saved: %s", out_path.name)

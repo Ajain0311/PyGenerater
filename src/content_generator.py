@@ -49,20 +49,27 @@ _LANG_RULES = {
 # search phrases (not verbose paragraphs), and is tuned to emit <2k output
 # tokens. response_mime_type=json removes markdown scaffolding waste + retries.
 CONTENT_PROMPT = """\
-You script a faceless YouTube Shorts channel for an Indian audience.
+You script a VIRAL faceless YouTube Shorts channel for Indian audience.
 TOPIC: {topic}
 {lang_rule}
 
+MANDATORY VIRAL FORMULA — pick the best fit for the topic:
+- ANIMAL SHOCK: "This [animal] LITERALLY [did human thing] — nobody knew why"
+- COUNTDOWN: "[N] things about [topic] India never told you"
+- MYSTERY REVEAL: "The real reason [topic] [surprising behaviour] — scientists are baffled"
+- INDIA PRIDE: "India just [achievement] and BROKE the world"
+- DID YOU KNOW: "For [X] years nobody knew this about [topic] — until NOW"
+
 Return ONLY this JSON object:
 {{
-  "hook": "3-7 word scroll-stopper. Use ONE pattern: bold claim, curiosity gap, shock stat, or direct question. No hashtags.",
-  "script": "Voiceover, 65-95 words (~25-35s — short Shorts retain best). FIRST sentence = the hook said naturally (viewer must hear a word within the first second). Open a curiosity loop early ('but here's what nobody expected') and DON'T resolve it until the final line. Short punchy sentences. The LAST line pays off the hook so the video loops cleanly, then a quick call to action.",
-  "cta": "On-screen CTA, max 4 words (e.g. 'Follow for more').",
-  "youtube_title": "Under 70 chars, contains the topic.",
-  "youtube_description": "2 short paragraphs, ends with 'Follow for daily trending updates!'.",
-  "hashtags": ["#shorts", "#trending", "#india", "... up to 8 mixing trending+niche+topic"],
-  "thumbnail_text": "3-4 bold words.",
-  "image_queries": ["2-4 word visual stock-search phrase", "scene 2", "scene 3", "scene 4"]
+  "hook": "5-9 ALL-CAPS words. Emotional trigger: shock/pride/mystery/awe. Zero hashtags. Examples: 'THIS LION LITERALLY SAID HELLO', 'INDIA JUST BROKE THE WORLD', 'NOBODY KNEW THIS FOR 100 YEARS'",
+  "script": "Voiceover 75-95 words. Rules: (1) First sentence = hook said naturally. (2) Sentences 2-3 deepen mystery — use 'but what happened next...' or 'scientists found something shocking'. (3) Drop the REVEAL exactly in the middle. (4) Final 2 sentences = callback to hook + loop payoff so the viewer watches again. MAX 7 words per sentence. Mix 3-word impact sentences with longer ones.",
+  "cta": "3-4 words. E.g. 'Follow for more', 'Share this now'",
+  "youtube_title": "Under 70 chars with an emotional keyword and the topic",
+  "youtube_description": "2 short punchy paragraphs. Last line: 'Follow for daily trending updates!'",
+  "hashtags": ["#shorts", "#viral", "#india", "#trending", "...4 more topic-specific tags"],
+  "thumbnail_text": "2-4 ALL CAPS shock words",
+  "image_queries": ["dramatic close-up search phrase for scene 1", "action scene 2", "wide scene 3", "reveal/payoff scene 4"]
 }}
 """
 

@@ -80,15 +80,15 @@ class Config:
 
     # ── Kinetic motion / captions ──────────────────────────────────────────
     # Background scene swaps on this cadence → constant visual novelty.
-    SCENE_SECONDS: float = float(os.getenv("SCENE_SECONDS", "2.6"))
+    SCENE_SECONDS: float = float(os.getenv("SCENE_SECONDS", "2.2"))
     # Max words on screen at once — keeps captions readable, never the full script.
     CAPTION_MAX_WORDS: int = _int("CAPTION_MAX_WORDS", 3)
-    CAPTION_FONT_SIZE: int = _int("CAPTION_FONT_SIZE", 104)
-    HOOK_FONT_SIZE: int = _int("HOOK_FONT_SIZE", 128)
+    CAPTION_FONT_SIZE: int = _int("CAPTION_FONT_SIZE", 112)
+    HOOK_FONT_SIZE: int = _int("HOOK_FONT_SIZE", 152)
     # Highlight colour for the word being spoken (R,G,B). Bright yellow-green pops.
-    CAPTION_HIGHLIGHT: str = os.getenv("CAPTION_HIGHLIGHT", "255,221,0")
-    HOOK_SECONDS: float = float(os.getenv("HOOK_SECONDS", "3.0"))
-    CTA_SECONDS: float = float(os.getenv("CTA_SECONDS", "2.8"))
+    CAPTION_HIGHLIGHT: str = os.getenv("CAPTION_HIGHLIGHT", "255,60,0")
+    HOOK_SECONDS: float = float(os.getenv("HOOK_SECONDS", "2.6"))
+    CTA_SECONDS: float = float(os.getenv("CTA_SECONDS", "3.0"))
     # Optional drop-in font dir (e.g. Montserrat-ExtraBold.ttf, Anton.ttf).
     FONTS_DIR: Path = _path("FONTS_DIR", "assets/fonts")
 

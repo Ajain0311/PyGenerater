@@ -190,6 +190,16 @@ def _chevron(size: int = 90) -> np.ndarray:
     return np.array(img)
 
 
+def _flash_clip(start: float, dur: float = 0.18) -> "ImageClip":
+    """White flash on each scene cut — the single biggest watch-time trick."""
+    from moviepy import ImageClip, vfx
+    arr = np.full((H, W, 4), [255, 255, 255, 255], dtype=np.uint8)
+    return (ImageClip(arr, transparent=True)
+            .with_start(start)
+            .with_duration(dur)
+            .with_effects([vfx.CrossFadeOut(dur)]))
+
+
 # ── Clip builders ──────────────────────────────────────────────────────────--
 def _ken_burns(base: np.ndarray, dur: float, variant: int, start: float, xfade: float):
     from moviepy import ImageClip, vfx
@@ -198,21 +208,21 @@ def _ken_burns(base: np.ndarray, dur: float, variant: int, start: float, xfade: 
     clip = ImageClip(base).with_duration(dur)
 
     if variant % 3 == 0:      # slow zoom-in
-        s0, s1 = 1.0, 1.10
+        s0, s1 = 1.0, 1.28
         clip = clip.resized(lambda t: s0 + (s1 - s0) * min(t / dur, 1.0))
         clip = clip.with_position(lambda t: (
             (W - bw * (s0 + (s1 - s0) * min(t / dur, 1.0))) / 2,
             (H - bh * (s0 + (s1 - s0) * min(t / dur, 1.0))) / 2,
         ))
     elif variant % 3 == 1:    # slow zoom-out
-        s0, s1 = 1.10, 1.0
+        s0, s1 = 1.28, 1.0
         clip = clip.resized(lambda t: s0 + (s1 - s0) * min(t / dur, 1.0))
         clip = clip.with_position(lambda t: (
             (W - bw * (s0 + (s1 - s0) * min(t / dur, 1.0))) / 2,
             (H - bh * (s0 + (s1 - s0) * min(t / dur, 1.0))) / 2,
         ))
     else:                     # horizontal pan at fixed scale
-        s = 1.08
+        s = 1.22
         cw, chh = bw * s, bh * s
         marg = (cw - W) / 2
         direction = 1 if (variant // 3) % 2 == 0 else -1
@@ -232,20 +242,20 @@ def _background(image_paths: list[Path], duration: float):
     from moviepy import CompositeVideoClip
 
     xfade = 0.45
-    bases: list[np.ndarray] = []
     valid = [p for p in (image_paths or []) if p and Path(p).exists()]
-    n_src = max(len(valid), 1)
     n_seg = max(1, int(np.ceil((duration - xfade) / (SCENE - xfade))))
-    for i in range(n_seg):
-        src = valid[i % len(valid)] if valid else None
-        bases.append(_scene_base(src, i))
+    bases = [_scene_base(valid[i % len(valid)] if valid else None, i) for i in range(n_seg)]
 
     clips = []
+    flashes = []
     for i, base in enumerate(bases):
         start = i * (SCENE - xfade)
         clips.append(_ken_burns(base, SCENE + xfade, i, start, xfade))
+        if i > 0:
+            flashes.append(_flash_clip(start))
+
     bg = CompositeVideoClip(clips, size=(W, H)).with_duration(duration)
-    return bg
+    return bg, flashes
 
 
 def _caption_clips(cues: list[Cue], duration: float, cap_limit: float | None = None):
@@ -271,9 +281,10 @@ def _caption_clips(cues: list[Cue], duration: float, cap_limit: float | None = N
             clip = (ImageClip(arr, transparent=True)
                     .with_start(seg_start)
                     .with_duration(seg_dur)
-                    # rise into place over the first 0.14s — continuous motion
-                    .with_position(lambda t, y=y_top: ("center", int(y + 20 * max(0.0, 1 - t / 0.14))))
-                    .with_effects([vfx.CrossFadeIn(min(0.06, seg_dur / 2))]))
+                    # scale-punch: stamp in from 1.10→1.0 over 0.18s, then rise
+                    .resized(lambda t: 1.0 + 0.10 * max(0.0, 1.0 - t / 0.18))
+                    .with_position(lambda t, y=y_top: ("center", int(y + 22 * max(0.0, 1 - t / 0.14))))
+                    .with_effects([vfx.CrossFadeIn(min(0.05, seg_dur / 2))]))
             clips.append(clip)
     return clips
 
@@ -336,6 +347,25 @@ def _watermark_clip(text: str, duration: float):
             .with_position(("center", int(H * 0.90))))
 
 
+def _progress_bar_clip(duration: float):
+    """Thin curiosity meter at top: fills left-to-right as the Short plays.
+    Psychologically keeps viewers watching — they want to see it fill."""
+    from moviepy import VideoClip
+    hl = _hl_color()
+    bar_h = 10
+
+    def make_frame(t: float) -> np.ndarray:
+        progress = min(t / max(duration, 0.01), 1.0)
+        arr = np.zeros((bar_h, W, 3), np.uint8)
+        fill_w = max(0, int(W * progress))
+        if fill_w:
+            arr[:, :fill_w] = hl
+        arr[:, fill_w:] = [28, 28, 28]
+        return arr
+
+    return VideoClip(make_frame, duration=duration).with_position(("center", 0))
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 class VideoGenerator:
     def generate(
@@ -372,8 +402,11 @@ class VideoGenerator:
         cta_dur = min(config.CTA_SECONDS, duration)
         cap_limit = max(0.0, duration - cta_dur) if cta_text else duration
 
-        layers = [_background(image_paths, duration)]
+        bg, flash_clips = _background(image_paths, duration)
+        layers = [bg]
+        layers.extend(flash_clips)
         layers.append(ImageClip(_legibility_overlay(), transparent=True).with_duration(duration))
+        layers.append(_progress_bar_clip(duration))
         layers.extend(_caption_clips(cues, duration, cap_limit=cap_limit))
 
         hook_text = (hook or title or "").strip()
