@@ -627,11 +627,13 @@ def _update_env(updates: dict[str, str]):
 def _test_gemini():
     with st.spinner("Testing Gemini API…"):
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=config.GEMINI_API_KEY)
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            resp = model.generate_content("Say 'Gemini OK' in exactly 2 words.")
-            st.success(f"✅ Gemini API working: `{resp.text.strip()}`")
+            from google import genai as genai_client
+            client = genai_client.Client(api_key=config.GEMINI_API_KEY)
+            resp = client.models.generate_content(
+                model=config.GEMINI_MODEL,
+                contents="Say 'Gemini OK' in exactly 2 words.",
+            )
+            st.success(f"✅ Gemini API working ({config.GEMINI_MODEL}): `{resp.text.strip()}`")
         except Exception as e:
             st.error(f"❌ Gemini API error: {e}")
 
