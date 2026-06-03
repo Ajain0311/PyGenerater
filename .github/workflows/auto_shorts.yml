@@ -59,6 +59,9 @@ jobs:
             libfontconfig1 \
             fonts-dejavu-core \
             fonts-liberation \
+            fonts-noto-core \
+            fonts-lohit-deva \
+            libfribidi0 \
             imagemagick
 
       # ── Python setup ──────────────────────────────────────────────────────
@@ -97,6 +100,8 @@ jobs:
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           UNSPLASH_ACCESS_KEY:   ${{ secrets.UNSPLASH_ACCESS_KEY }}
           TRENDS_GEO:             ${{ vars.TRENDS_GEO || 'IN' }}
+          TTS_LANGUAGE:           ${{ vars.TTS_LANGUAGE || 'en' }}
+          TTS_VOICE:              ${{ vars.TTS_VOICE || '' }}
           YOUTUBE_PRIVACY_STATUS: ${{ vars.YOUTUBE_PRIVACY_STATUS || 'public' }}
           SHORTS_PER_RUN:         ${{ github.event.inputs.n_shorts || vars.SHORTS_PER_RUN || '1' }}
           CHANNEL_NAME:           ${{ vars.CHANNEL_NAME || 'Aditya Dhing' }}

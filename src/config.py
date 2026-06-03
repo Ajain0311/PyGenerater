@@ -42,6 +42,11 @@ class Config:
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     GEMINI_IMAGE_MODEL: str = os.getenv("GEMINI_IMAGE_MODEL", "imagen-3.0-generate-001")
+    # Cap output tokens hard — the compact retention JSON fits in <2k tokens.
+    # (Old value was 8192, which let the model ramble and burned free-tier quota.)
+    GEMINI_MAX_OUTPUT_TOKENS: int = _int("GEMINI_MAX_OUTPUT_TOKENS", 2048)
+    # Cache generated content per topic so re-runs cost ZERO Gemini tokens.
+    CONTENT_CACHE: bool = os.getenv("CONTENT_CACHE", "true").lower() == "true"
 
     # ── YouTube ───────────────────────────────────────────────────────────
     YOUTUBE_CLIENT_ID: str = os.getenv("YOUTUBE_CLIENT_ID", "")
@@ -58,11 +63,34 @@ class Config:
     TRENDS_GEO: str = os.getenv("TRENDS_GEO", "IN")
     TRENDS_COUNT: int = _int("TRENDS_COUNT", 20)
 
+    # ── Text-to-Speech (edge-tts neural voices, free, no API key) ──────────
+    # language: "en" (Indian English) | "hi" (Hindi) | "hinglish" (mixed)
+    TTS_LANGUAGE: str = os.getenv("TTS_LANGUAGE", "en")
+    # Explicit voice override; if empty a voice is chosen from TTS_LANGUAGE.
+    TTS_VOICE: str = os.getenv("TTS_VOICE", "")
+    # Slightly slower than default reads more naturally and gives captions room.
+    TTS_RATE: str = os.getenv("TTS_RATE", "-6%")
+    TTS_PITCH: str = os.getenv("TTS_PITCH", "+0Hz")
+
     # ── Video ─────────────────────────────────────────────────────────────
     VIDEO_WIDTH: int = _int("VIDEO_WIDTH", 1080)
     VIDEO_HEIGHT: int = _int("VIDEO_HEIGHT", 1920)
     VIDEO_FPS: int = _int("VIDEO_FPS", 30)
-    VIDEO_DURATION: int = _int("VIDEO_DURATION", 60)
+    VIDEO_DURATION: int = _int("VIDEO_DURATION", 60)  # hard cap, not a target
+
+    # ── Kinetic motion / captions ──────────────────────────────────────────
+    # Background scene swaps on this cadence → constant visual novelty.
+    SCENE_SECONDS: float = float(os.getenv("SCENE_SECONDS", "2.6"))
+    # Max words on screen at once — keeps captions readable, never the full script.
+    CAPTION_MAX_WORDS: int = _int("CAPTION_MAX_WORDS", 3)
+    CAPTION_FONT_SIZE: int = _int("CAPTION_FONT_SIZE", 104)
+    HOOK_FONT_SIZE: int = _int("HOOK_FONT_SIZE", 128)
+    # Highlight colour for the word being spoken (R,G,B). Bright yellow-green pops.
+    CAPTION_HIGHLIGHT: str = os.getenv("CAPTION_HIGHLIGHT", "255,221,0")
+    HOOK_SECONDS: float = float(os.getenv("HOOK_SECONDS", "3.0"))
+    CTA_SECONDS: float = float(os.getenv("CTA_SECONDS", "2.8"))
+    # Optional drop-in font dir (e.g. Montserrat-ExtraBold.ttf, Anton.ttf).
+    FONTS_DIR: Path = _path("FONTS_DIR", "assets/fonts")
 
     # ── Generation ────────────────────────────────────────────────────────
     SHORTS_PER_RUN: int = _int("SHORTS_PER_RUN", 1)

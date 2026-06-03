@@ -1,47 +1,30 @@
-# Python
+﻿# Python
 __pycache__/
 *.py[cod]
-*$py.class
+*.pyo
+*.pyd
+.Python
 *.egg-info/
 dist/
 build/
 .eggs/
 *.egg
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# Virtual environments
-venv/
 .venv/
+venv/
 env/
-ENV/
 
-# Environment & secrets
-.env
-*.env.local
-client_secrets.json
-youtube_token.json
+# Generated / runtime output
+generated/
+logs/
+data/app.db
+data/current_key_index.txt
 
-# Generated content (don't commit large media files)
-generated/audio/*.mp3
-generated/images/*.jpg
-generated/images/*.png
-generated/videos/*.mp4
-generated/thumbnails/*.jpg
+# Temp MoviePy files
+*TEMP_MPY_wvf_snd*
+*.tmp
 
-# Keep folder structure
-!generated/audio/.gitkeep
-!generated/images/.gitkeep
-!generated/videos/.gitkeep
-!generated/thumbnails/.gitkeep
-
-# Database (do NOT ignore — persisted via GitHub cache action)
-# data/app.db
-
-# Logs
-logs/*.log
-!logs/.gitkeep
+# Claude Code
+.claude/
 
 # OS
 .DS_Store
@@ -49,14 +32,14 @@ Thumbs.db
 desktop.ini
 
 # IDE
-.idea/
 .vscode/
+.idea/
 *.swp
 *.swo
 
-# Streamlit
-.streamlit/secrets.toml
-
-# Setup scripts with potential credentials (run locally, never commit)
-scripts/github_setup.py
+# Secrets / one-time setup
+.env
+.env.*
+data/youtube_token.json
 RUN_SETUP_ONCE.ps1
+scripts/github_setup.py

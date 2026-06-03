@@ -93,6 +93,101 @@ def api_retry(
     return decorator
 
 
+# ── Fonts ───────────────────────────────────────────────────────────────────
+# Caption rendering needs (a) a heavy/bold Latin font for that "viral caption"
+# look and (b) a Devanagari-capable font for Hindi/Hinglish. We resolve both
+# from a drop-in assets/fonts dir first, then common system locations, so the
+# pipeline renders correct glyphs on Windows (Nirmala UI) and on the Ubuntu CI
+# runner (Noto/Lohit) alike.
+
+_FONT_CACHE: dict[tuple[int, bool, bool], Any] = {}
+
+_LATIN_BOLD_CANDIDATES = [
+    "Montserrat-ExtraBold.ttf", "Montserrat-Bold.ttf", "Anton-Regular.ttf",
+    "Anton.ttf", "BebasNeue-Regular.ttf", "Poppins-Bold.ttf",
+    "arialbd.ttf", "Arial Bold.ttf", "ariblk.ttf",
+    "DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "C:/Windows/Fonts/arialbd.ttf", "C:/Windows/Fonts/seguibl.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+]
+
+_DEVANAGARI_CANDIDATES = [
+    "NotoSansDevanagari-Bold.ttf", "NotoSansDevanagari-Regular.ttf",
+    "Lohit-Devanagari.ttf",
+    "C:/Windows/Fonts/NirmalaB.ttf", "C:/Windows/Fonts/Nirmala.ttf",
+    "C:/Windows/Fonts/mangalb.ttf", "C:/Windows/Fonts/mangal.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf",
+    "/usr/share/fonts/truetype/lohit-devanagari/Lohit-Devanagari.ttf",
+    "/usr/share/fonts/truetype/Sarai/Sarai.ttf",
+]
+
+
+def has_devanagari(text: str) -> bool:
+    """True if the string contains any Devanagari codepoint (U+0900–U+097F)."""
+    return any("ऀ" <= ch <= "ॿ" for ch in text)
+
+
+def get_font(size: int, bold: bool = True, devanagari: bool = False):
+    """
+    Return a PIL ImageFont sized `size`. Picks a Devanagari-capable face when
+    `devanagari=True`, otherwise a heavy Latin face. Uses raqm layout when the
+    Pillow build supports it (needed for correct Hindi conjuncts/matras).
+    """
+    from PIL import ImageFont
+
+    key = (size, bold, devanagari)
+    if key in _FONT_CACHE:
+        return _FONT_CACHE[key]
+
+    from src.config import config
+    candidates: list[str] = []
+    # Drop-in fonts win, so a user can ship Montserrat/Anton without code changes.
+    try:
+        for p in sorted(config.FONTS_DIR.glob("*.ttf")) + sorted(config.FONTS_DIR.glob("*.otf")):
+            candidates.append(str(p))
+    except Exception:
+        pass
+    candidates += _DEVANAGARI_CANDIDATES if devanagari else _LATIN_BOLD_CANDIDATES
+
+    # Prefer raqm so complex-script (Devanagari) shaping is correct, but only
+    # request it when the Pillow build actually has it — otherwise PIL warns and
+    # falls back anyway. Linux CI wheels ship with raqm; some Windows builds don't.
+    layout = getattr(ImageFont, "Layout", None)
+    engines: list = [None]
+    if layout is not None:
+        have_raqm = False
+        try:
+            from PIL import features
+            have_raqm = features.check("raqm")
+        except Exception:
+            have_raqm = False
+        if devanagari and have_raqm and getattr(layout, "RAQM", None) is not None:
+            engines = [layout.RAQM, getattr(layout, "BASIC", None)]
+        elif getattr(layout, "BASIC", None) is not None:
+            engines = [layout.BASIC]
+    engines = [e for e in engines if e is not None] or [None]
+
+    font = None
+    for path in candidates:
+        for engine in engines:
+            try:
+                font = (ImageFont.truetype(path, size, layout_engine=engine)
+                        if engine is not None else ImageFont.truetype(path, size))
+                break
+            except (IOError, OSError, ValueError):
+                continue
+        if font is not None:
+            break
+    if font is None:
+        font = ImageFont.load_default()
+
+    _FONT_CACHE[key] = font
+    return font
+
+
 def sanitise_filename(name: str, max_len: int = 80) -> str:
     """Strip unsafe chars and truncate for use as a filename."""
     import re

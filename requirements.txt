@@ -8,11 +8,16 @@ google-auth-httplib2>=0.2.0
 pytrends>=4.9.2
 
 # Video & Media
-moviepy>=1.0.3
+# NOTE: the renderer uses the MoviePy 2.x API (with_position, resized, vfx.*),
+# so 2.x is REQUIRED — a 1.x install would break imports.
+moviepy>=2.1.1
 imageio>=2.34.0
 imageio-ffmpeg>=0.5.1
 
 # Text-to-Speech
+# edge-tts = free, no-key neural voices (Hindi/Indian-English) with word-level
+# timing for perfectly synced captions. gTTS kept only as an offline-ish fallback.
+edge-tts>=7.0.0
 gTTS>=2.5.1
 
 # Image Processing

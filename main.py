@@ -109,9 +109,11 @@ def run_pipeline(
             log.info("Generating scene images…")
             image_paths = image_gen.generate_scene_images(content.image_prompts, slug)
 
-            # ── Voiceover ─────────────────────────────────────────────────
+            # ── Voiceover (edge-tts → real per-word timestamps) ───────────
             log.info("Generating voiceover…")
-            audio_path, subtitle_segments = voice_gen.generate(content.script, slug)
+            audio_path, subtitle_segments = voice_gen.generate(
+                content.script, slug, language=content.language
+            )
 
             # ── Thumbnail ─────────────────────────────────────────────────
             log.info("Generating thumbnail…")
@@ -137,7 +139,7 @@ def run_pipeline(
                 continue
 
             # ── Video generation ──────────────────────────────────────────
-            log.info("Rendering video with MoviePy…")
+            log.info("Rendering kinetic video with MoviePy…")
             video_path = video_gen.generate(
                 title=content.short_title,
                 script=content.script,
@@ -145,6 +147,9 @@ def run_pipeline(
                 image_paths=image_paths,
                 audio_path=audio_path,
                 slug=slug,
+                hook=content.hook,
+                cta=content.cta,
+                language=content.language,
             )
 
             # Update DB with generated paths
