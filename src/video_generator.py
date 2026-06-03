@@ -35,9 +35,13 @@ W, H = config.VIDEO_WIDTH, config.VIDEO_HEIGHT
 FPS = config.VIDEO_FPS
 TOTAL_DURATION = config.VIDEO_DURATION
 SCENE = max(1.5, config.SCENE_SECONDS)
-CAPTION_Y = int(H * 0.60)          # vertical centre of caption band
-HOOK_Y = int(H * 0.30)
-SAFE_W = W - 150                   # keep text inside phone-safe margins
+# Layout constants — all positions respect the YouTube Shorts mobile safe zone:
+# top 0-8%: status bar/notch; right 86-100%: like/share buttons;
+# bottom 75-100%: title/description UI overlay.
+# Important text must live between 10% and 72% vertically.
+CAPTION_Y = int(H * 0.58)          # caption band centre (58% = well above YT bottom UI)
+HOOK_Y    = int(H * 0.30)          # hook centre (30% = clear of captions)
+SAFE_W    = W - 200                # keep text inside phone-safe margins (wider guard)
 
 _GRADIENTS = [
     ((18, 26, 64), (96, 64, 196)),
@@ -258,7 +262,13 @@ def _background(image_paths: list[Path], duration: float):
     return bg, flashes
 
 
-def _caption_clips(cues: list[Cue], duration: float, cap_limit: float | None = None):
+def _caption_clips(
+    cues: list[Cue],
+    duration: float,
+    cap_limit: float | None = None,
+    cap_start: float = 0.0,
+):
+    """cap_start: suppress captions before this time (e.g. during hook)."""
     from moviepy import ImageClip, vfx
 
     limit = duration if cap_limit is None else cap_limit
@@ -269,8 +279,8 @@ def _caption_clips(cues: list[Cue], duration: float, cap_limit: float | None = N
             break
         words = [w.text for w in cue.words]
         for wi, w in enumerate(cue.words):
-            seg_start = max(0.0, w.start)
-            # Stop captions before the CTA takes over the screen → no overlap.
+            # Don't show captions while the hook dominates the screen.
+            seg_start = max(cap_start, w.start)
             seg_end = min(w.hl_end, limit)
             seg_dur = seg_end - seg_start
             if seg_dur <= 0.04:
@@ -278,12 +288,11 @@ def _caption_clips(cues: list[Cue], duration: float, cap_limit: float | None = N
             arr = _render_words(words, wi, size)
             img_h = arr.shape[0]
             y_top = CAPTION_Y - img_h // 2
+            # Rise-in only (no resized() — that overflows a 1080-wide canvas on mobile).
             clip = (ImageClip(arr, transparent=True)
                     .with_start(seg_start)
                     .with_duration(seg_dur)
-                    # scale-punch: stamp in from 1.10→1.0 over 0.18s, then rise
-                    .resized(lambda t: 1.0 + 0.10 * max(0.0, 1.0 - t / 0.18))
-                    .with_position(lambda t, y=y_top: ("center", int(y + 22 * max(0.0, 1 - t / 0.14))))
+                    .with_position(lambda t, y=y_top: ("center", int(y + 38 * max(0.0, 1 - t / 0.18))))
                     .with_effects([vfx.CrossFadeIn(min(0.05, seg_dur / 2))]))
             clips.append(clip)
     return clips
@@ -316,7 +325,7 @@ def _cta_clips(text: str, duration: float):
     start = duration - dur
     arr = _render_banner(text.upper(), int(config.CAPTION_FONT_SIZE * 1.05), _hl_color(), accent=(255, 255, 255))
     img_h = arr.shape[0]
-    y_target = int(H * 0.52) - img_h // 2
+    y_target = int(H * 0.62) - img_h // 2
     banner = (ImageClip(arr, transparent=True)
               .with_start(start)
               .with_duration(dur)
@@ -344,7 +353,7 @@ def _watermark_clip(text: str, duration: float):
            stroke_width=3, stroke_fill=(0, 0, 0, 160))
     return (ImageClip(np.array(img), transparent=True)
             .with_duration(duration)
-            .with_position(("center", int(H * 0.90))))
+            .with_position(("center", int(H * 0.83))))
 
 
 def _progress_bar_clip(duration: float):
@@ -402,14 +411,17 @@ class VideoGenerator:
         cta_dur = min(config.CTA_SECONDS, duration)
         cap_limit = max(0.0, duration - cta_dur) if cta_text else duration
 
+        hook_text = (hook or title or "").strip()
+        # Captions wait until the hook fades out — no simultaneous text layers.
+        hook_dur = min(config.HOOK_SECONDS, duration) if hook_text else 0.0
+
         bg, flash_clips = _background(image_paths, duration)
         layers = [bg]
         layers.extend(flash_clips)
         layers.append(ImageClip(_legibility_overlay(), transparent=True).with_duration(duration))
         layers.append(_progress_bar_clip(duration))
-        layers.extend(_caption_clips(cues, duration, cap_limit=cap_limit))
+        layers.extend(_caption_clips(cues, duration, cap_limit=cap_limit, cap_start=hook_dur))
 
-        hook_text = (hook or title or "").strip()
         hk = _hook_clip(hook_text, duration)
         if hk is not None:
             layers.append(hk)
@@ -423,7 +435,7 @@ class VideoGenerator:
         final = CompositeVideoClip(layers, size=(W, H)).with_duration(duration)
         final = final.with_audio(audio.subclipped(0, duration)).with_fps(FPS)
 
-        log.info("Rendering → %s", out_path)
+        log.info("Rendering -> %s", out_path)
         final.write_videofile(
             str(out_path),
             fps=FPS,

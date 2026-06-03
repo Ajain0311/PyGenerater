@@ -101,7 +101,7 @@ class ImageGenerator:
                 config=gtypes.GenerateImagesConfig(
                     number_of_images=1,
                     aspect_ratio="9:16",
-                    safety_filter_level="BLOCK_SOME",
+                    safety_filter_level="BLOCK_LOW_AND_ABOVE",
                 ),
             )
             if result.generated_images:

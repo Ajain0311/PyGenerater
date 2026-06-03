@@ -32,8 +32,13 @@ def get_logger(name: str) -> logging.Logger:
     logger.setLevel(getattr(logging, config.LOG_LEVEL.upper(), logging.INFO))
 
     if not logger.handlers:
+        # Force UTF-8 on Windows so arrow/box chars don't crash cp1252 streams.
+        import io
+        stream = sys.stdout
+        if hasattr(stream, "buffer"):
+            stream = io.TextIOWrapper(stream.buffer, encoding="utf-8", errors="replace")
         # Console handler with colour
-        ch = colorlog.StreamHandler(sys.stdout)
+        ch = colorlog.StreamHandler(stream)
         ch.setFormatter(
             colorlog.ColoredFormatter(
                 "%(log_color)s%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",

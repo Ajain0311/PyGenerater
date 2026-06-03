@@ -162,6 +162,11 @@ class ContentGenerator:
                 log.info("Retrying with next key (attempt %d)…", _attempt + 2)
                 time.sleep(2)
                 return self.generate(topic, language=language, _attempt=_attempt + 1)
+            if any(code in err for code in ("503", "UNAVAILABLE", "overloaded", "high demand")):
+                wait = min(30, 6 * (_attempt + 1))
+                log.warning("Gemini 503/overloaded — waiting %ds then retry (attempt %d)…", wait, _attempt + 2)
+                time.sleep(wait)
+                return self.generate(topic, language=language, _attempt=_attempt + 1)
             if "Invalid JSON" in err and _attempt < 3:
                 log.warning("JSON truncated, retrying same key…")
                 time.sleep(3)

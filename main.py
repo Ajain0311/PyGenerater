@@ -90,7 +90,7 @@ def run_pipeline(
     for idx, topic_data in enumerate(topics_to_process[:n]):
         keyword = topic_data["keyword"]
         topic_db_id = topic_data.get("id")
-        log.info("─" * 60)
+        log.info("-" * 60)
         log.info("[%d/%d] Processing topic: %r", idx + 1, min(n, len(topics_to_process)), keyword)
 
         slug = sanitise_filename(keyword) + f"_{int(time.time())}"
@@ -210,7 +210,7 @@ def run_pipeline(
             video_repo.update_status(video_record.id, "failed", error_message=str(exc))
             analytics_repo.increment("api_errors")
 
-    log.info("─" * 60)
+    log.info("-" * 60)
     log.info("Pipeline complete. Uploaded %d video(s).", len(uploaded_ids))
     return uploaded_ids
 
