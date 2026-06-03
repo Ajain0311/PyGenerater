@@ -1,0 +1,23 @@
+# Streamlit theme + runtime config for the Shorts Generator dashboard.
+# A dark, modern base; custom CSS in dashboard/app.py refines the rest.
+
+[theme]
+base = "dark"
+primaryColor = "#7c5cff"
+backgroundColor = "#0b0b14"
+secondaryBackgroundColor = "#15151f"
+textColor = "#e8e8f0"
+font = "sans serif"
+
+[server]
+headless = true
+runOnSave = true
+# Faster reruns: don't re-collect static file watcher noise.
+fileWatcherType = "auto"
+
+[browser]
+gatherUsageStats = false
+
+[client]
+showErrorDetails = true
+toolbarMode = "minimal"
