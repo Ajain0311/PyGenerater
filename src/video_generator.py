@@ -23,7 +23,7 @@ import os
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 
 from src.captions import Cue, build_caption_cues
 from src.config import config
@@ -52,12 +52,38 @@ _GRADIENTS = [
 ]
 
 
+# Per-render highlight override — set by generate() when the scene palette is
+# warm enough that the configured warm highlight would not pop against it.
+_HL_OVERRIDE: tuple[int, int, int] | None = None
+
+
 def _hl_color() -> tuple[int, int, int]:
+    if _HL_OVERRIDE is not None:
+        return _HL_OVERRIDE
     try:
         r, g, b = (int(x) for x in config.CAPTION_HIGHLIGHT.split(","))
         return (r, g, b)
     except Exception:
         return (255, 221, 0)
+
+
+def _adaptive_highlight(image_paths: list[Path]) -> tuple[int, int, int] | None:
+    """Electric cyan on warm scenes; otherwise keep the configured colour."""
+    try:
+        p = next((p for p in (image_paths or []) if p and Path(p).exists()), None)
+        if not p:
+            return None
+        arr = np.asarray(Image.open(p).convert("RGB").resize((64, 64)), dtype=float)
+        warmth = arr[..., 0].mean() - arr[..., 2].mean()  # red minus blue
+        return (0, 229, 255) if warmth > 18 else None
+    except Exception:
+        return None
+
+
+def _ease(p: float) -> float:
+    """Smoothstep ease-in-out — mechanical linear motion reads as cheap."""
+    p = min(max(p, 0.0), 1.0)
+    return p * p * (3.0 - 2.0 * p)
 
 
 # ── Image helpers ────────────────────────────────────────────────────────────
@@ -79,12 +105,20 @@ def _gradient_np(idx: int, w: int, h: int) -> np.ndarray:
     return grad
 
 
+def _grade(img: Image.Image) -> Image.Image:
+    """Light cinematic grade: stock photos arrive flat and washed out."""
+    img = ImageEnhance.Color(img).enhance(1.18)
+    img = ImageEnhance.Contrast(img).enhance(1.08)
+    img = ImageEnhance.Brightness(img).enhance(1.02)
+    return img
+
+
 def _scene_base(path: Path | None, idx: int) -> np.ndarray:
     """A frame-and-a-quarter sized RGB array, giving room to zoom/pan."""
     bw, bh = int(W * 1.25), int(H * 1.25)
     if path and Path(path).exists():
         try:
-            return np.array(_cover(Image.open(path).convert("RGB"), bw, bh))
+            return np.array(_grade(_cover(Image.open(path).convert("RGB"), bw, bh)))
         except Exception as e:
             log.warning("bg image %s failed: %s", path, e)
     return _gradient_np(idx, bw, bh)
@@ -125,36 +159,56 @@ def _layout(words: list[str], size: int, max_width: int):
     return lines, total_w, total_h, space, line_h
 
 
-def _render_words(words: list[str], active: int, size: int, highlight: bool = True) -> np.ndarray:
-    """Render a centred caption band (full video width) with the active word
-    on a coloured chip; inactive words white with a heavy black stroke."""
-    lines, _, total_h, space, line_h = _layout(words, size, SAFE_W)
-    pad = max(16, size // 5)
-    canvas = Image.new("RGBA", (W, total_h + pad * 2), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(canvas)
-    stroke = max(4, size // 11)
-    hl = _hl_color()
-
-    gi = 0  # global word index across lines
+def _word_positions(lines: list[list], space: int, line_h: int, pad: int):
+    """Flatten the layout into absolute (word, font, x, y, width) tuples."""
+    positions = []
     y = pad
     for line in lines:
         line_w = sum(it[2] for it in line) + space * (len(line) - 1)
         x = (W - line_w) // 2
         for (wd, font, ww, _h) in line:
-            is_active = highlight and gi == active
-            if is_active:
-                chip = max(10, size // 8)
-                draw.rounded_rectangle(
-                    [x - chip, y - chip // 2, x + ww + chip, y + line_h - chip // 2],
-                    radius=max(12, size // 6), fill=(*hl, 255),
-                )
-                draw.text((x, y), wd, font=font, fill=(12, 12, 12, 255))
-            else:
-                draw.text((x, y), wd, font=font, fill=(255, 255, 255, 255),
-                          stroke_width=stroke, stroke_fill=(0, 0, 0, 255))
+            positions.append((wd, font, x, y, ww))
             x += ww + space
-            gi += 1
         y += line_h
+    return positions
+
+
+def _shadow_layer(size_px: tuple[int, int], positions: list, stroke: int) -> Image.Image:
+    """Soft blurred drop-shadow under the text — reads cleaner than a fat
+    rasterised stroke alone and adds depth on bright backgrounds."""
+    shadow = Image.new("RGBA", size_px, (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow)
+    for (wd, font, x, y, _ww) in positions:
+        sd.text((x, y + 6), wd, font=font, fill=(0, 0, 0, 170),
+                stroke_width=stroke, stroke_fill=(0, 0, 0, 170))
+    return shadow.filter(ImageFilter.GaussianBlur(5))
+
+
+def _render_words(words: list[str], active: int, size: int, highlight: bool = True) -> np.ndarray:
+    """Render a centred caption band (full video width) with the active word
+    on a coloured chip; inactive words white with a black stroke over a soft
+    drop-shadow."""
+    lines, _, total_h, space, line_h = _layout(words, size, SAFE_W)
+    pad = max(16, size // 5)
+    stroke = max(4, size // 12)
+    hl = _hl_color()
+    positions = _word_positions(lines, space, line_h, pad)
+
+    canvas = Image.new("RGBA", (W, total_h + pad * 2), (0, 0, 0, 0))
+    canvas = Image.alpha_composite(canvas, _shadow_layer(canvas.size, positions, stroke))
+    draw = ImageDraw.Draw(canvas)
+
+    for gi, (wd, font, x, y, ww) in enumerate(positions):
+        if highlight and gi == active:
+            chip = max(10, size // 8)
+            draw.rounded_rectangle(
+                [x - chip, y - chip // 2, x + ww + chip, y + line_h - chip // 2],
+                radius=max(12, size // 6), fill=(*hl, 255),
+            )
+            draw.text((x, y), wd, font=font, fill=(12, 12, 12, 255))
+        else:
+            draw.text((x, y), wd, font=font, fill=(255, 255, 255, 255),
+                      stroke_width=stroke, stroke_fill=(0, 0, 0, 255))
     return np.array(canvas)
 
 
@@ -163,18 +217,15 @@ def _render_banner(text: str, size: int, color: tuple, accent: tuple | None = No
     words = text.split()
     lines, total_w, total_h, space, line_h = _layout(words, size, SAFE_W)
     pad = max(24, size // 4)
+    stroke = max(5, size // 11)
+    positions = _word_positions(lines, space, line_h, pad)
+
     canvas = Image.new("RGBA", (W, total_h + pad * 2), (0, 0, 0, 0))
+    canvas = Image.alpha_composite(canvas, _shadow_layer(canvas.size, positions, stroke))
     draw = ImageDraw.Draw(canvas)
-    stroke = max(5, size // 10)
-    y = pad
-    for line in lines:
-        line_w = sum(it[2] for it in line) + space * (len(line) - 1)
-        x = (W - line_w) // 2
-        for (wd, font, ww, _h) in line:
-            draw.text((x, y), wd, font=font, fill=(*color, 255),
-                      stroke_width=stroke, stroke_fill=(0, 0, 0, 255))
-            x += ww + space
-        y += line_h
+    for (wd, font, x, y, _ww) in positions:
+        draw.text((x, y), wd, font=font, fill=(*color, 255),
+                  stroke_width=stroke, stroke_fill=(0, 0, 0, 255))
     if accent:  # underline accent bar under the banner
         bar_w = min(total_w + pad, SAFE_W)
         bx = (W - bar_w) // 2
@@ -194,10 +245,11 @@ def _chevron(size: int = 90) -> np.ndarray:
     return np.array(img)
 
 
-def _flash_clip(start: float, dur: float = 0.18) -> "ImageClip":
-    """White flash on each scene cut — the single biggest watch-time trick."""
+def _flash_clip(start: float, dur: float = 0.14) -> "ImageClip":
+    """Soft luma pulse on each scene cut. Kept well below full white — a
+    255-alpha strobe is harsh on the eyes and a photosensitivity hazard."""
     from moviepy import ImageClip, vfx
-    arr = np.full((H, W, 4), [255, 255, 255, 255], dtype=np.uint8)
+    arr = np.full((H, W, 4), [255, 255, 255, 120], dtype=np.uint8)
     return (ImageClip(arr, transparent=True)
             .with_start(start)
             .with_duration(dur)
@@ -210,30 +262,40 @@ def _ken_burns(base: np.ndarray, dur: float, variant: int, start: float, xfade: 
 
     bh, bw = base.shape[0], base.shape[1]
     clip = ImageClip(base).with_duration(dur)
+    # Deterministic per-scene variety: zoom depth cycles 1.22 / 1.25 / 1.28 so
+    # consecutive scenes never repeat the exact same move.
+    depth = 1.22 + 0.03 * ((variant * 7) % 3)
+    kind = variant % 4
 
-    if variant % 3 == 0:      # slow zoom-in
-        s0, s1 = 1.0, 1.28
-        clip = clip.resized(lambda t: s0 + (s1 - s0) * min(t / dur, 1.0))
-        clip = clip.with_position(lambda t: (
-            (W - bw * (s0 + (s1 - s0) * min(t / dur, 1.0))) / 2,
-            (H - bh * (s0 + (s1 - s0) * min(t / dur, 1.0))) / 2,
-        ))
-    elif variant % 3 == 1:    # slow zoom-out
-        s0, s1 = 1.28, 1.0
-        clip = clip.resized(lambda t: s0 + (s1 - s0) * min(t / dur, 1.0))
-        clip = clip.with_position(lambda t: (
-            (W - bw * (s0 + (s1 - s0) * min(t / dur, 1.0))) / 2,
-            (H - bh * (s0 + (s1 - s0) * min(t / dur, 1.0))) / 2,
-        ))
-    else:                     # horizontal pan at fixed scale
-        s = 1.22
+    if kind == 0:             # eased zoom-in
+        s0, s1 = 1.0, depth
+        scale = lambda t: s0 + (s1 - s0) * _ease(t / dur)
+        clip = clip.resized(scale)
+        clip = clip.with_position(lambda t: ((W - bw * scale(t)) / 2, (H - bh * scale(t)) / 2))
+    elif kind == 1:           # eased zoom-out
+        s0, s1 = depth, 1.0
+        scale = lambda t: s0 + (s1 - s0) * _ease(t / dur)
+        clip = clip.resized(scale)
+        clip = clip.with_position(lambda t: ((W - bw * scale(t)) / 2, (H - bh * scale(t)) / 2))
+    elif kind == 2:           # eased horizontal pan at fixed scale
+        s = depth
         cw, chh = bw * s, bh * s
         marg = (cw - W) / 2
-        direction = 1 if (variant // 3) % 2 == 0 else -1
+        direction = 1 if (variant // 4) % 2 == 0 else -1
         clip = clip.resized(s)
         clip = clip.with_position(lambda t: (
-            (W - cw) / 2 + direction * marg * (1 - 2 * min(t / dur, 1.0)),
+            (W - cw) / 2 + direction * marg * (1 - 2 * _ease(t / dur)),
             (H - chh) / 2,
+        ))
+    else:                     # eased diagonal drift (pan + slight vertical)
+        s = depth
+        cw, chh = bw * s, bh * s
+        mx, my = (cw - W) / 2, (chh - H) / 2
+        direction = 1 if (variant // 4) % 2 == 0 else -1
+        clip = clip.resized(s)
+        clip = clip.with_position(lambda t: (
+            (W - cw) / 2 + direction * mx * (1 - 2 * _ease(t / dur)),
+            (H - chh) / 2 - direction * my * 0.5 * (1 - 2 * _ease(t / dur)),
         ))
 
     clip = clip.with_start(start)
@@ -389,12 +451,24 @@ class VideoGenerator:
         cta: str | None = None,
         language: str = "en",
     ) -> Path:
-        from moviepy import AudioFileClip, CompositeVideoClip, ImageClip
-
         out_path = config.VIDEOS_DIR / f"{slug}.mp4"
         if out_path.exists() and out_path.stat().st_size > 0:
             log.info("Video exists, reusing: %s", out_path.name)
             return out_path
+
+        global _HL_OVERRIDE
+        _HL_OVERRIDE = _adaptive_highlight(image_paths)
+        if _HL_OVERRIDE:
+            log.info("Warm scene palette detected — switching highlight to cyan")
+        try:
+            return self._render(out_path, slug, image_paths, audio_path,
+                                subtitle_segments, hook, cta, title)
+        finally:
+            _HL_OVERRIDE = None
+
+    def _render(self, out_path: Path, slug: str, image_paths, audio_path,
+                subtitle_segments, hook, cta, title) -> Path:
+        from moviepy import AudioFileClip, CompositeVideoClip, ImageClip, afx
 
         audio = AudioFileClip(str(audio_path))
         duration = float(min(audio.duration, TOTAL_DURATION))
@@ -433,7 +507,10 @@ class VideoGenerator:
             layers.append(wm)
 
         final = CompositeVideoClip(layers, size=(W, H)).with_duration(duration)
-        final = final.with_audio(audio.subclipped(0, duration)).with_fps(FPS)
+        voice = audio.subclipped(0, duration).with_effects(
+            [afx.AudioFadeIn(0.05), afx.AudioFadeOut(0.35)]
+        )
+        final = final.with_audio(voice).with_fps(FPS)
 
         log.info("Rendering -> %s", out_path)
         final.write_videofile(
@@ -441,8 +518,8 @@ class VideoGenerator:
             fps=FPS,
             codec="libx264",
             audio_codec="aac",
-            preset="veryfast",
-            bitrate="6000k",
+            preset="fast",
+            bitrate="8000k",
             audio_bitrate="192k",
             threads=max(2, (os.cpu_count() or 4) - 1),
             logger=None,

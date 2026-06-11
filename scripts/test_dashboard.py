@@ -20,7 +20,8 @@ sys.path.insert(0, str(ROOT))
 from streamlit.testing.v1 import AppTest
 
 APP = str(ROOT / "dashboard" / "app.py")
-PAGES = ["Dashboard", "Trending Topics", "Create Video", "Upload Manager", "Analytics", "Settings"]
+PAGES = ["Dashboard", "Automation", "Create Video", "Topics", "Videos",
+         "Analytics", "Logs", "System", "Settings"]
 
 
 def _exc(at) -> str | None:

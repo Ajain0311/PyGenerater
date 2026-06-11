@@ -42,9 +42,10 @@ class Config:
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     GEMINI_IMAGE_MODEL: str = os.getenv("GEMINI_IMAGE_MODEL", "imagen-3.0-generate-001")
-    # Cap output tokens hard — the compact retention JSON fits in <2k tokens.
-    # (Old value was 8192, which let the model ramble and burned free-tier quota.)
-    GEMINI_MAX_OUTPUT_TOKENS: int = _int("GEMINI_MAX_OUTPUT_TOKENS", 2048)
+    # Output-token cap. Must leave headroom: on gemini-2.5 models "thinking"
+    # tokens count against this same cap, and even with thinking disabled the
+    # JSON needs ~1k tokens. 2048 caused truncated JSON → failed runs.
+    GEMINI_MAX_OUTPUT_TOKENS: int = _int("GEMINI_MAX_OUTPUT_TOKENS", 4096)
     # Cache generated content per topic so re-runs cost ZERO Gemini tokens.
     CONTENT_CACHE: bool = os.getenv("CONTENT_CACHE", "true").lower() == "true"
 

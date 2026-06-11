@@ -139,28 +139,84 @@ class TrendsFetcher:
 
     @staticmethod
     def _seed_topics(geo: str) -> list[dict[str, Any]]:
-        """Curated evergreen Indian trending topics as final fallback."""
+        """Curated evergreen curiosity topics as final fallback.
+
+        These are deliberately mystery/facts-genre topics (not news headlines)
+        because the content engine writes hook–reveal–loop scripts; generic
+        news keywords like "Bollywood New Movie Release" produce weak scripts."""
         seeds = [
-            ("IPL 2025 Live Score", "sports"),
-            ("Bollywood New Movie Release", "entertainment"),
-            ("India vs Pakistan Cricket", "sports"),
-            ("AI Technology India 2025", "technology"),
-            ("Stock Market India Today", "finance"),
-            ("Jio New Plan 2025", "technology"),
-            ("Modi Government Budget", "politics"),
-            ("Viral Video India Today", "entertainment"),
-            ("India Weather Monsoon", "weather"),
-            ("Indian Startup Funding", "business"),
-            ("Prabhas New Movie", "entertainment"),
-            ("UPSC Exam Result 2025", "education"),
-            ("Delhi Metro New Line", "infrastructure"),
-            ("Reliance Industries News", "business"),
-            ("India Space Mission ISRO", "science"),
-            ("Bigg Boss Season Winner", "entertainment"),
-            ("Gold Rate India Today", "finance"),
-            ("India Olympic Medal", "sports"),
-            ("Deepfake AI Awareness", "technology"),
-            ("Yoga Health Benefits", "health"),
+            # ── Animals & nature ────────────────────────────────────────────
+            ("Why Tigers Never Attack From The Front", "science"),
+            ("The Bird That Sleeps While Flying", "science"),
+            ("Octopus Three Hearts Mystery", "science"),
+            ("Why Cows Face North While Eating", "science"),
+            ("The Immortal Jellyfish Secret", "science"),
+            ("King Cobra Afraid Of This Animal", "science"),
+            ("Elephants Can Hear Through Their Feet", "science"),
+            ("The Fish That Walks On Land In India", "science"),
+            ("Why Dogs Tilt Their Head When You Speak", "science"),
+            ("Crows Remember Human Faces For Years", "science"),
+            ("The Snake That Flies In Indian Forests", "science"),
+            ("Why Ants Never Sleep", "science"),
+            # ── India pride & history ───────────────────────────────────────
+            ("Secrets Hidden Inside The Taj Mahal", "history"),
+            ("The Indian Temple Built From A Single Rock", "history"),
+            ("Why Indian Railways Never Paints Some Bridges", "history"),
+            ("The Village In India Where Doors Have No Locks", "history"),
+            ("India's Floating Lake Mystery", "history"),
+            ("The 1000 Year Old Indian Temple That Hangs In Air", "history"),
+            ("Why The Qutub Minar Iron Pillar Never Rusts", "history"),
+            ("The Indian King Who Defeated Alexander's Fear", "history"),
+            ("Secret Tunnels Under Delhi Nobody Talks About", "history"),
+            ("The Indian Lake That Turns Pink", "science"),
+            ("Why Kumbh Mela Is Visible From Space", "history"),
+            ("The Indian Village Where Everyone Speaks Sanskrit", "history"),
+            # ── Space & science ─────────────────────────────────────────────
+            ("What ISRO Found On The Moon's South Pole", "science"),
+            ("The Sound Black Holes Actually Make", "science"),
+            ("Why Astronauts Grow Taller In Space", "science"),
+            ("The Planet Where It Rains Diamonds", "science"),
+            ("What Happens If You Fall Into Jupiter", "science"),
+            ("The Star That Should Not Exist", "science"),
+            ("Why The Ocean Is Deeper Than Everest Is Tall", "science"),
+            ("NASA Recorded This Sound From The Sun", "science"),
+            # ── Human body & psychology ─────────────────────────────────────
+            ("Your Brain Deletes Memories While You Sleep", "health"),
+            ("Why Your Stomach Has A Second Brain", "health"),
+            ("The Real Reason You Forget Why You Entered A Room", "health"),
+            ("Humans Glow In The Dark But Can't See It", "science"),
+            ("Why Time Feels Faster As You Get Older", "health"),
+            ("Your Body Replaces Itself Every 7 Years", "health"),
+            ("Why Goosebumps Exist", "health"),
+            # ── Technology & AI ─────────────────────────────────────────────
+            ("AI Predicted This About India By 2030", "technology"),
+            ("Why Your Phone Battery Dies Faster Every Year", "technology"),
+            ("The Indian Engineer Behind The Pentium Chip", "technology"),
+            ("What Happens To Deleted Photos Really", "technology"),
+            ("The Computer Older Than Your Grandfather Still Running", "technology"),
+            ("Why Aeroplane Windows Are Always Round", "technology"),
+            ("The Indian App That Beat WhatsApp In One Country", "technology"),
+            # ── Food & daily life ───────────────────────────────────────────
+            ("Why Indian Train Chai Tastes Different", "food"),
+            ("The Real Reason Maggi Takes Exactly 2 Minutes", "food"),
+            ("Why Banana Is A Berry But Strawberry Is Not", "food"),
+            ("The Spice Worth More Than Gold In India", "food"),
+            ("Why Hotel Food Tastes Better At Night", "food"),
+            ("The Indian Sweet That Is 500 Years Old", "food"),
+            # ── Money & world ───────────────────────────────────────────────
+            ("Why Indian Coins Have Different Shapes", "finance"),
+            ("The Country Where India Built A Whole City", "business"),
+            ("Why 1 Rupee Note Is Signed Differently", "finance"),
+            ("The Indian Family Richer Than Some Countries", "business"),
+            ("Why Petrol Prices Change At 6 AM In India", "finance"),
+            ("The Most Expensive House In The World Is In Mumbai", "business"),
+            # ── Geography & mystery ─────────────────────────────────────────
+            ("The Indian Border Visible From Space At Night", "geography"),
+            ("Why No Bridge Exists Over The Amazon River", "geography"),
+            ("The Indian Village On The Border Of Two Countries", "geography"),
+            ("The Place In India Where Gravity Fails", "mystery"),
+            ("The Indian Lake With A Floating Island Post Office", "geography"),
+            ("Why Magnetic Hill In Ladakh Pulls Cars Uphill", "mystery"),
         ]
         return [{"keyword": k, "category": c, "geo": geo,
                  "related_queries": [], "source": "seed"} for k, c in seeds]
