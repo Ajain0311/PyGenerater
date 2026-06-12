@@ -1,0 +1,9 @@
+ffmpeg
+libsm6
+libxext6
+libfontconfig1
+fonts-dejavu-core
+fonts-liberation
+fonts-noto-core
+fonts-lohit-deva
+libfribidi0
