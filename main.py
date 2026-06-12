@@ -63,10 +63,30 @@ def run_pipeline(
         else:
             log.info("No new topics from trends — using unprocessed topics from DB.")
 
+        # Fetch extra candidates so a failing topic falls through to the next
+        # one instead of ending the run with zero uploads.
+        candidate_limit = max(n * 4, 8)
         topics_to_process = [
             {"keyword": t.keyword, "score": t.score, "category": t.category, "id": t.id}
-            for t in topic_repo.get_unprocessed(limit=n)
+            for t in topic_repo.get_unprocessed(limit=candidate_limit)
         ]
+
+        if not topics_to_process:
+            # Trends sources are unreliable (pytrends/RSS 404) and seed topics
+            # eventually all get processed — replenish the queue with Gemini.
+            log.info("Topic queue empty — generating fresh ideas with Gemini…")
+            from src.content_generator import ContentGenerator
+            ideas = ContentGenerator().generate_topic_ideas(
+                count=max(n * 4, 10), exclude=sorted(topic_repo.all_keywords())
+            )
+            if ideas:
+                inserted = topic_repo.bulk_insert_new(ideas)
+                analytics_repo.increment("topics_fetched", inserted)
+                log.info("Inserted %d Gemini topic ideas into DB", inserted)
+                topics_to_process = [
+                    {"keyword": t.keyword, "score": t.score, "category": t.category, "id": t.id}
+                    for t in topic_repo.get_unprocessed(limit=candidate_limit)
+                ]
 
     if not topics_to_process:
         log.info("No unprocessed topics available.")
@@ -87,11 +107,15 @@ def run_pipeline(
     thumb_gen = ThumbnailGenerator()
     uploader = YouTubeUploader() if not skip_upload else None
 
-    for idx, topic_data in enumerate(topics_to_process[:n]):
+    successes = 0
+    for idx, topic_data in enumerate(topics_to_process):
+        if successes >= n:
+            break
         keyword = topic_data["keyword"]
         topic_db_id = topic_data.get("id")
         log.info("-" * 60)
-        log.info("[%d/%d] Processing topic: %r", idx + 1, min(n, len(topics_to_process)), keyword)
+        log.info("[success %d/%d, candidate %d/%d] Processing topic: %r",
+                 successes + 1, n, idx + 1, len(topics_to_process), keyword)
 
         slug = sanitise_filename(keyword) + f"_{int(time.time())}"
         video_record = video_repo.create(
@@ -136,6 +160,7 @@ def run_pipeline(
                                          thumbnail_path=str(thumb_path))
                 if topic_db_id:
                     topic_repo.mark_processed(topic_db_id)
+                successes += 1
                 continue
 
             # ── Video generation ──────────────────────────────────────────
@@ -174,6 +199,7 @@ def run_pipeline(
             # ── YouTube Upload ────────────────────────────────────────────
             if skip_upload or not uploader:
                 log.info("Upload skipped (--skip-upload flag).")
+                successes += 1
             else:
                 log.info("Uploading to YouTube…")
                 video_repo.update_status(video_record.id, "uploading")
@@ -196,11 +222,18 @@ def run_pipeline(
                     )
                     analytics_repo.increment("videos_uploaded")
                     uploaded_ids.append(youtube_id)
+                    successes += 1
                     log.info("Uploaded! URL: %s", youtube_url)
                 except Exception as e:
                     log.error("Upload failed: %s", e)
                     video_repo.update_status(video_record.id, "upload_failed", error_message=str(e))
                     analytics_repo.increment("api_errors")
+                    if topic_db_id:
+                        topic_repo.mark_processed(topic_db_id)
+                    # Upload failures (quota/auth) affect every video — moving
+                    # on to another topic would just burn the queue.
+                    log.error("Stopping run: upload failures are not topic-specific.")
+                    break
 
             if topic_db_id:
                 topic_repo.mark_processed(topic_db_id)
@@ -209,6 +242,9 @@ def run_pipeline(
             log.error("Pipeline failed for topic %r: %s", keyword, exc, exc_info=True)
             video_repo.update_status(video_record.id, "failed", error_message=str(exc))
             analytics_repo.increment("api_errors")
+            if topic_db_id:
+                fails = topic_repo.mark_failed(topic_db_id)
+                log.warning("Topic %r failure #%d — trying next candidate.", keyword, fails)
 
     log.info("-" * 60)
     log.info("Pipeline complete. Uploaded %d video(s).", len(uploaded_ids))
@@ -261,7 +297,13 @@ Examples:
             log.info("Successfully uploaded %d short(s):", len(ids))
             for vid_id in ids:
                 log.info("  → https://www.youtube.com/shorts/%s", vid_id)
-        sys.exit(0)
+            sys.exit(0)
+        if args.dry_run or args.skip_upload:
+            sys.exit(0)
+        # An upload run that uploaded nothing is a failure — exit non-zero so
+        # CI shows red instead of silently reporting success.
+        log.error("Run finished with ZERO uploads — marking run as failed.")
+        sys.exit(2)
     except KeyboardInterrupt:
         log.info("Interrupted by user.")
         sys.exit(0)

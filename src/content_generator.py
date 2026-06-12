@@ -74,6 +74,25 @@ Return ONLY this JSON object:
 """
 
 
+TOPIC_IDEAS_PROMPT = """\
+You run a VIRAL faceless YouTube Shorts channel for an Indian audience.
+Generate {count} FRESH topic ideas for 50-second curiosity videos.
+
+Rules:
+- Each topic must fit a hook–mystery–reveal script (facts, animals, space,
+  India pride, history, human body, technology, food, money, geography).
+- NO news headlines, NO dates, NO celebrity gossip.
+- 4-10 words each, written as a curiosity statement.
+- Categories: science|history|technology|health|food|finance|business|geography|mystery|sports|entertainment
+
+Avoid anything similar to these already-used topics:
+{exclude}
+
+Return ONLY this JSON object:
+{{"topics": [{{"keyword": "Why Indian Trains Honk Differently At Night", "category": "technology"}}]}}
+"""
+
+
 class ContentGenerator:
     def __init__(self):
         status = key_status()
@@ -130,24 +149,36 @@ class ContentGenerator:
 
         try:
             client = self._make_client()
+            gen_config_kwargs: dict[str, Any] = dict(
+                temperature=0.9,
+                top_p=0.95,
+                max_output_tokens=config.GEMINI_MAX_OUTPUT_TOKENS,
+                response_mime_type="application/json",
+            )
+            # gemini-2.5 models "think" by default and the thinking tokens count
+            # against max_output_tokens, truncating the JSON mid-string.
+            # 2.5-pro can't fully disable thinking, so only zero it elsewhere.
+            if "2.5-pro" not in config.GEMINI_MODEL:
+                gen_config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
             response = client.models.generate_content(
                 model=config.GEMINI_MODEL,
                 contents=CONTENT_PROMPT.format(topic=topic, lang_rule=_LANG_RULES[language]),
-                config=types.GenerateContentConfig(
-                    temperature=0.9,
-                    top_p=0.95,
-                    max_output_tokens=config.GEMINI_MAX_OUTPUT_TOKENS,
-                    response_mime_type="application/json",
-                ),
+                config=types.GenerateContentConfig(**gen_config_kwargs),
             )
             raw_text = (response.text or "").strip()
 
             usage = getattr(response, "usage_metadata", None)
             input_tokens = getattr(usage, "prompt_token_count", 0) or 0
             output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+            thought_tokens = getattr(usage, "thoughts_token_count", 0) or 0
+            if thought_tokens:
+                log.warning("Model spent %d thinking tokens (counts against max_output_tokens)",
+                            thought_tokens)
             cost = calculate_gemini_cost(input_tokens, output_tokens)
 
             data = self._parse_json(raw_text)
+            if not str(data.get("script", "")).strip():
+                raise ValueError("Incomplete content from Gemini: empty script")
             self._save_cache(topic, language, data)
 
             content = self._build(topic, data, language, input_tokens, output_tokens, cost)
@@ -167,11 +198,56 @@ class ContentGenerator:
                 log.warning("Gemini 503/overloaded — waiting %ds then retry (attempt %d)…", wait, _attempt + 2)
                 time.sleep(wait)
                 return self.generate(topic, language=language, _attempt=_attempt + 1)
-            if "Invalid JSON" in err and _attempt < 3:
+            if any(m in err for m in ("Invalid JSON", "Incomplete content")) and _attempt < 3:
                 log.warning("JSON truncated, retrying same key…")
                 time.sleep(3)
                 return self.generate(topic, language=language, _attempt=_attempt + 1)
             raise
+
+    def generate_topic_ideas(self, count: int = 10, exclude: list[str] | None = None,
+                             _attempt: int = 0) -> list[dict[str, Any]]:
+        """Generate fresh viral topic ideas — used when the topic queue runs
+        dry (trends sources are unreliable). Returns DB-ready topic dicts."""
+        if _attempt >= 5:
+            log.error("Could not generate topic ideas after %d attempts.", _attempt)
+            return []
+        excl = "\n".join(f"- {k}" for k in (exclude or [])[:150]) or "- (none)"
+        try:
+            client = self._make_client()
+            gen_kwargs: dict[str, Any] = dict(
+                temperature=1.0,
+                max_output_tokens=config.GEMINI_MAX_OUTPUT_TOKENS,
+                response_mime_type="application/json",
+            )
+            if "2.5-pro" not in config.GEMINI_MODEL:
+                gen_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+            response = client.models.generate_content(
+                model=config.GEMINI_MODEL,
+                contents=TOPIC_IDEAS_PROMPT.format(count=count, exclude=excl),
+                config=types.GenerateContentConfig(**gen_kwargs),
+            )
+            data = self._parse_json((response.text or "").strip())
+            ideas = []
+            for t in data.get("topics", []):
+                kw = str(t.get("keyword", "")).strip()
+                if kw:
+                    ideas.append({
+                        "keyword": kw,
+                        "category": str(t.get("category", "general")),
+                        "geo": config.TRENDS_GEO,
+                        "score": 80.0,
+                        "source": "gemini",
+                    })
+            log.info("Gemini generated %d fresh topic ideas", len(ideas))
+            return ideas[:count]
+        except Exception as exc:
+            err = str(exc)
+            if any(code in err for code in ("429", "RESOURCE_EXHAUSTED", "quota")):
+                rotate_key(reason="429 quota (topic ideas)")
+                time.sleep(2)
+                return self.generate_topic_ideas(count, exclude, _attempt + 1)
+            log.warning("Topic idea generation failed: %s", err)
+            return []
 
     def _build(self, topic, data, language, in_tok, out_tok, cost) -> VideoContent:
         hashtags = data.get("hashtags", [])
@@ -217,4 +293,40 @@ class ContentGenerator:
         try:
             return json.loads(text)
         except json.JSONDecodeError as e:
+            repaired = self._repair_truncated_json(text[start:])
+            if repaired is not None:
+                log.warning("Recovered truncated JSON by repairing it")
+                return repaired
             raise ValueError(f"Invalid JSON from Gemini: {e}")
+
+    @staticmethod
+    def _repair_truncated_json(text: str) -> dict[str, Any] | None:
+        """Best-effort repair of JSON cut off mid-stream: close the open
+        string, drop a dangling key/comma, then close open braces/brackets."""
+        stack: list[str] = []
+        in_str = False
+        esc = False
+        for ch in text:
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+            elif ch == '"':
+                in_str = True
+            elif ch in "{[":
+                stack.append(ch)
+            elif ch in "}]":
+                if stack:
+                    stack.pop()
+        repaired = text.rstrip("\\") + ('"' if in_str else "")
+        repaired = re.sub(r",\s*$", "", repaired)
+        repaired = re.sub(r",?\s*\"[^\"]*\"\s*:\s*$", "", repaired)
+        repaired += "".join("}" if c == "{" else "]" for c in reversed(stack))
+        try:
+            data = json.loads(repaired)
+            return data if isinstance(data, dict) else None
+        except json.JSONDecodeError:
+            return None

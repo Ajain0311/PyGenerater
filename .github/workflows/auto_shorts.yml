@@ -2,8 +2,8 @@ name: Auto YouTube Shorts Generator
 
 on:
   schedule:
-    # Run every 6 hours
-    - cron: "0 */6 * * *"
+    # Run every 4 hours (6 uploads/day)
+    - cron: "0 */4 * * *"
   workflow_dispatch:
     inputs:
       topic:
@@ -32,7 +32,7 @@ jobs:
   generate-and-upload:
     name: Generate & Upload YouTube Shorts
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       # ── Checkout ──────────────────────────────────────────────────────────

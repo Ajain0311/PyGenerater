@@ -65,6 +65,7 @@ class Topic(Base):
     source = Column(String(50), default="google_trends")
     is_processed = Column(Boolean, default=False)
     is_uploaded = Column(Boolean, default=False)
+    fail_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     processed_at = Column(DateTime, nullable=True)
 
@@ -128,9 +129,27 @@ class DailyAnalytics(Base):
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 def init_db() -> None:
-    """Create all tables if they don't exist."""
-    Base.metadata.create_all(get_engine())
+    """Create all tables if they don't exist, then apply column migrations."""
+    engine = get_engine()
+    Base.metadata.create_all(engine)
+    _migrate_columns(engine)
     log.info("Database initialised at %s", config.DB_PATH)
+
+
+def _migrate_columns(engine) -> None:
+    """create_all() never alters existing tables, and the CI database is
+    restored from cache — so new columns must be added by hand."""
+    migrations = {
+        "topics": {"fail_count": "INTEGER DEFAULT 0"},
+    }
+    with engine.connect() as conn:
+        for table, columns in migrations.items():
+            existing = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+            for col, ddl in columns.items():
+                if existing and col not in existing:
+                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+                    log.info("DB migration: added %s.%s", table, col)
+        conn.commit()
 
 
 # ── Repository helpers ────────────────────────────────────────────────────────
@@ -168,6 +187,49 @@ class TopicRepo:
             topic.is_processed = True
             topic.processed_at = datetime.utcnow()
             self.session.commit()
+
+    def mark_failed(self, topic_id: int, max_failures: int = 3) -> int:
+        """Record a generation failure. After max_failures the topic is
+        retired (marked processed) so it can't block the queue forever.
+        Returns the new fail count."""
+        topic = self.session.get(Topic, topic_id)
+        if not topic:
+            return 0
+        topic.fail_count = (topic.fail_count or 0) + 1
+        if topic.fail_count >= max_failures:
+            topic.is_processed = True
+            topic.processed_at = datetime.utcnow()
+            log.warning("Topic %r retired after %d failures", topic.keyword, topic.fail_count)
+        self.session.commit()
+        return topic.fail_count
+
+    def add_manual(self, keyword: str, score: float = 100.0, category: str = "manual") -> Optional[Topic]:
+        """Add a user-supplied topic to the queue. Returns None if it exists."""
+        if self.exists(keyword):
+            return None
+        topic = Topic(keyword=keyword, score=score, category=category,
+                      geo=config.TRENDS_GEO, source="manual")
+        self.session.add(topic)
+        self.session.commit()
+        return topic
+
+    def requeue(self, topic_id: int) -> None:
+        """Put a processed/retired topic back into the unprocessed queue."""
+        topic = self.session.get(Topic, topic_id)
+        if topic:
+            topic.is_processed = False
+            topic.fail_count = 0
+            topic.processed_at = None
+            self.session.commit()
+
+    def delete(self, topic_id: int) -> None:
+        topic = self.session.get(Topic, topic_id)
+        if topic:
+            self.session.delete(topic)
+            self.session.commit()
+
+    def count_unprocessed(self) -> int:
+        return self.session.query(Topic).filter_by(is_processed=False).count()
 
     def all_keywords(self) -> set[str]:
         rows = self.session.query(Topic.keyword).all()
@@ -212,10 +274,31 @@ class VideoRepo:
     def get_pending_uploads(self) -> list[Video]:
         return (
             self.session.query(Video)
-            .filter_by(status="generated")
+            .filter(Video.status.in_(["generated", "upload_failed"]))
             .order_by(Video.created_at.asc())
             .all()
         )
+
+    def get_by_id(self, video_id: int) -> Optional[Video]:
+        return self.session.get(Video, video_id)
+
+    def get_by_status(self, status: str, limit: int = 50) -> list[Video]:
+        return (
+            self.session.query(Video)
+            .filter_by(status=status)
+            .order_by(Video.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+    def delete(self, video_id: int) -> None:
+        v = self.session.get(Video, video_id)
+        if v:
+            self.session.delete(v)
+            self.session.commit()
+
+    def total_cost(self) -> float:
+        return self.session.query(func.coalesce(func.sum(Video.estimated_cost_usd), 0.0)).scalar()
 
     def count_by_status(self) -> dict[str, int]:
         rows = (

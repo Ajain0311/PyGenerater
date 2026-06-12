@@ -10,7 +10,7 @@ pytrends>=4.9.2
 # Video & Media
 # NOTE: the renderer uses the MoviePy 2.x API (with_position, resized, vfx.*),
 # so 2.x is REQUIRED — a 1.x install would break imports.
-moviepy>=2.1.1
+moviepy>=2.1.1,<3
 imageio>=2.34.0
 imageio-ffmpeg>=0.5.1
 

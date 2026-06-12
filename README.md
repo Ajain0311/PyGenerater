@@ -1,6 +1,6 @@
 # 🎬 YouTube Shorts Auto-Generator
 
-A fully automated AI-powered system that fetches trending topics from Google Trends, generates complete YouTube Shorts (script → images → voiceover → video → upload) using the Gemini API, and uploads them to YouTube — all on autopilot via GitHub Actions every 6 hours.
+A fully automated AI-powered system that fetches trending topics from Google Trends, generates complete YouTube Shorts (script → images → voiceover → video → upload) using the Gemini API, and uploads them to YouTube — all on autopilot via GitHub Actions every 4 hours.
 
 ---
 
@@ -16,8 +16,8 @@ A fully automated AI-powered system that fetches trending topics from Google Tre
 | **Thumbnail** | Pillow-generated, branded, topic-aware |
 | **Upload** | YouTube Data API v3, OAuth2, resumable upload |
 | **Database** | SQLite (SQLAlchemy) — topics, videos, analytics |
-| **Dashboard** | Streamlit UI — manual control, analytics, upload manager |
-| **Automation** | GitHub Actions — every 6 hours, manual dispatch |
+| **Dashboard** | Streamlit control center — automation, topics, videos, analytics, logs, system |
+| **Automation** | GitHub Actions — every 4 hours, manual dispatch, dashboard trigger |
 | **Reliability** | Retry logic, error handling, quota awareness |
 | **Cost Tracking** | Token usage and USD cost per video |
 
@@ -251,23 +251,29 @@ Go to **Settings → Secrets and variables → Actions → Variables**
 
 1. Go to repo → **Actions** tab
 2. Click **Enable Actions**
-3. The workflow runs automatically every 6 hours
+3. The workflow runs automatically every 4 hours
 4. Or trigger manually: **Actions → Auto YouTube Shorts Generator → Run workflow**
 
 ---
 
 ## 🖥️ Streamlit Dashboard Guide
 
-The dashboard provides full manual control over the pipeline.
+The dashboard is a full project control center.
 
 | Page | Features |
 |------|----------|
-| **Dashboard** | KPI metrics, recent videos, status overview |
-| **Trending Topics** | Live Google Trends fetch, database browser, search |
-| **Create Video** | Manual topic entry, one-click generation & upload |
-| **Upload Manager** | View generated videos, upload individually or in bulk |
-| **Analytics** | Daily charts, cost tracking, status distribution |
-| **Settings** | API key management, YouTube OAuth, channel config |
+| **Dashboard** | KPI metrics, recent videos, last automation run + next scheduled run |
+| **Automation** | Trigger GitHub Actions runs from the UI, monitor/cancel recent runs |
+| **Create Video** | Manual topic entry, background (non-blocking) generation & upload |
+| **Topics** | Queue management — fetch trends, add manual topics, Gemini topic ideas, requeue/retire/delete |
+| **Videos** | Library with inline video preview, script view, retry failed uploads, bulk upload, delete |
+| **Analytics** | Daily charts, cost tracking, error counts, live YouTube channel stats |
+| **Logs** | App + per-run logs with level filter, search and download |
+| **System** | Health checks (keys, ffmpeg, auth), storage usage, cleanup, content cache manager |
+| **Settings** | API keys, YouTube OAuth, channel config, GitHub token for automation control |
+
+> For the **Automation** page, set `GITHUB_TOKEN` in `.env` (classic token with
+> `repo` + `workflow` scopes), or be logged in once via `gh auth login`.
 
 ### Hosting the Dashboard
 
