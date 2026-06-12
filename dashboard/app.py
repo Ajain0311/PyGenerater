@@ -38,6 +38,17 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
+# Streamlit Cloud: values from the app's Secrets UI arrive via st.secrets —
+# copy them into os.environ BEFORE src.config loads, so the exact same code
+# runs locally (.env via dotenv) and hosted (secrets.toml). Locally there is
+# usually no secrets file; st.secrets then raises, which we ignore.
+try:
+    for _k, _v in st.secrets.items():
+        if isinstance(_v, str) and _k not in os.environ:
+            os.environ[_k] = _v
+except Exception:
+    pass
+
 from src.config import config
 from src.database import (
     AnalyticsRepo,
@@ -393,16 +404,19 @@ WORKFLOW_FILE = "auto_shorts.yml"
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _gh_repo() -> str | None:
-    """owner/name parsed from the git remote."""
+    """owner/name parsed from the git remote, or GITHUB_REPOSITORY env var
+    (needed on hosted Streamlit where the git remote may be absent)."""
     try:
         out = subprocess.run(
             ["git", "remote", "get-url", "origin"],
             capture_output=True, text=True, cwd=config.BASE_DIR, timeout=10,
         )
         m = re.search(r"github\.com[:/]([^/\s]+/[^/\s.]+)", out.stdout.strip())
-        return m.group(1) if m else None
+        if m:
+            return m.group(1)
     except Exception:
-        return None
+        pass
+    return os.getenv("GITHUB_REPOSITORY") or None
 
 
 @st.cache_data(ttl=300, show_spinner=False)

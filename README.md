@@ -277,11 +277,29 @@ The dashboard is a full project control center.
 
 ### Hosting the Dashboard
 
-**Option A — Streamlit Cloud (Free)**
-1. Push repo to GitHub
-2. Go to [share.streamlit.io](https://share.streamlit.io)
-3. Connect repo → set main file: `dashboard/app.py`
-4. Add secrets in Streamlit Cloud settings
+**Option A — Streamlit Community Cloud (Free)**
+1. Go to [share.streamlit.io](https://share.streamlit.io) → **Sign in with GitHub**
+2. **Create app** → repo `Ajain0311/PyGenerater` · branch `main` · main file `dashboard/app.py`
+3. **Advanced settings → Secrets** — paste (TOML format, quotes required):
+   ```toml
+   GEMINI_API_KEY = "your_gemini_key"
+   GITHUB_TOKEN = "ghp_xxx"            # classic token, repo + workflow scopes
+   GITHUB_REPOSITORY = "Ajain0311/PyGenerater"
+   YOUTUBE_CLIENT_ID = "xxx.apps.googleusercontent.com"
+   YOUTUBE_CLIENT_SECRET = "xxx"
+   YOUTUBE_REFRESH_TOKEN = "xxx"
+   UNSPLASH_ACCESS_KEY = "xxx"
+   CHANNEL_NAME = "Your Channel"
+   CHANNEL_WATERMARK = "@YourHandle"
+   ```
+4. **Deploy** — every push to `main` auto-redeploys the app.
+
+> Hosted-mode note: the app's SQLite DB is ephemeral and separate from the CI
+> database, so Topics/Videos history starts empty there. The pages that shine
+> when hosted: **Automation** (trigger/monitor the 4-hour GitHub Actions
+> pipeline — including custom-topic runs), **Analytics → YouTube Channel**
+> (live channel stats), and **Logs/System**. For heavy local rendering, run
+> the dashboard on your PC instead.
 
 **Option B — Local network**
 ```bash
