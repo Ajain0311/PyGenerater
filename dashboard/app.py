@@ -108,8 +108,9 @@ def _inject_css() -> None:
   }
 
   /* Trim Streamlit chrome for a cleaner, app-like feel */
-  #MainMenu, footer, header [data-testid="stToolbar"] { visibility: hidden; }
-  .block-container { padding-top: 2.2rem; padding-bottom: 3rem; max-width: 1320px; }
+  #MainMenu, footer { visibility: hidden; }
+  header, [data-testid="stHeader"] { display: none !important; }
+  .block-container { padding-top: 1rem; padding-bottom: 3rem; max-width: 1320px; }
 
   /* Fade content in on rerun so page switches feel smooth, not janky */
   .main .block-container { animation: fadeUp .35s ease; }
@@ -252,7 +253,7 @@ def _inject_css() -> None:
       flex: 1 1 100% !important; min-width: 100% !important;
     }
     .page-head h1 { font-size:1.5rem; }
-    .block-container { padding-left: 1rem; padding-right: 1rem; }
+    .block-container { padding-top: 0.5rem; padding-left: 1rem; padding-right: 1rem; }
   }
 </style>
 """,
