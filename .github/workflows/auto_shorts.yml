@@ -1,9 +1,11 @@
-name: Auto YouTube Shorts Generator
+name: Auto YouTube Shorts Generator (legacy trends — manual only)
 
+# Scheduled auto-posting is DISABLED: the channel now publishes kids cartoons via
+# .github/workflows/kids_shorts.yml. This legacy trends pipeline is kept for
+# manual runs only (Run workflow), so it never competes for the daily upload.
 on:
-  schedule:
-    # Run every 4 hours (6 uploads/day)
-    - cron: "0 */4 * * *"
+  # schedule:
+  #   - cron: "0 */4 * * *"   # disabled — see kids_shorts.yml
   workflow_dispatch:
     inputs:
       topic:

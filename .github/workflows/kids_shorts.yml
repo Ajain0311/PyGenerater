@@ -1,0 +1,91 @@
+name: Daily Kids Cartoon Short
+
+# Scheduler for the AUTOMATIC daily upload. The 24h gate lives in the database
+# (Supabase via DATABASE_URL), so this can fire more than once a day and still
+# upload at most once / 24h. Manual uploads from the dashboard are unaffected.
+on:
+  schedule:
+    - cron: "30 2 * * *"     # 02:30 UTC daily (~08:00 IST). Gate enforces once/24h.
+  workflow_dispatch:
+    inputs:
+      category:
+        description: "Story category (blank = let the planner choose)"
+        required: false
+        default: ""
+      skip_upload:
+        description: "Generate only, don't upload"
+        required: false
+        default: "false"
+        type: boolean
+
+concurrency:
+  group: kids-shorts
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    name: Generate & upload one kids Short
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps (ffmpeg + Hindi/Devanagari fonts)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg libsm6 libxext6 libfontconfig1 libfribidi0 \
+            fonts-dejavu-core fonts-liberation fonts-noto-core fonts-lohit-deva
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate (and upload if YouTube is configured)
+        env:
+          DATABASE_URL:          ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2:      ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3:      ${{ secrets.GEMINI_API_KEY_3 }}
+          GEMINI_API_KEY_4:      ${{ secrets.GEMINI_API_KEY_4 }}
+          GEMINI_MODEL:          ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}
+          KIDS_LANGUAGE:         ${{ vars.KIDS_LANGUAGE || 'hi' }}
+          YOUTUBE_MADE_FOR_KIDS: "true"
+          # No GPU on Actions → use cloud Gemini images then gradient fallback.
+          IMAGE_BACKEND:         "gemini"
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          LOG_LEVEL: INFO
+        run: |
+          # Seed the cast on first run (idempotent — upserts by name).
+          python scripts/seed_characters.py || true
+          ARGS="--auto"
+          if [ -n "${{ github.event.inputs.category }}" ]; then
+            ARGS="$ARGS --category '${{ github.event.inputs.category }}'"
+          fi
+          # If YouTube isn't configured yet, generate only (don't fail on upload).
+          if [ -z "${YOUTUBE_REFRESH_TOKEN}" ] || [ "${{ github.event.inputs.skip_upload }}" = "true" ]; then
+            ARGS="$ARGS --skip-upload"
+            echo "::notice::YouTube not configured (or skip_upload) — generating only."
+          fi
+          echo "Running: python generate_kids.py $ARGS"
+          eval "python generate_kids.py $ARGS"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kids-short-${{ github.run_number }}
+          path: |
+            generated/videos/*.mp4
+            generated/thumbnails/*.jpg
+            logs/app.log
+          retention-days: 7
+          if-no-files-found: warn

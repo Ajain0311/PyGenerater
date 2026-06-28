@@ -251,7 +251,8 @@ def init_db() -> None:
     engine = get_engine()
     Base.metadata.create_all(engine)
     _migrate_columns(engine)
-    log.info("Database initialised at %s", config.DB_PATH)
+    target = config.DATABASE_URL.split("@")[-1] if config.DATABASE_URL else str(config.DB_PATH)
+    log.info("Database initialised (%s)", target)
 
 
 def _migrate_columns(engine) -> None:
