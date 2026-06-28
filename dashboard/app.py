@@ -38,6 +38,16 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
+# On Streamlit Cloud there is no .env file. Bridge the app's Secrets (set in
+# "Manage app → Settings → Secrets") into environment variables BEFORE importing
+# src.config, which reads os.getenv — so DATABASE_URL / GEMINI keys defined there
+# make the cloud dashboard talk to the same Supabase DB as your PC.
+try:
+    for _k, _v in dict(st.secrets).items():
+        os.environ.setdefault(_k, str(_v))
+except Exception:
+    pass
+
 from src.config import config
 from src.database import (
     AnalyticsRepo,
