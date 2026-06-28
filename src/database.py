@@ -34,10 +34,25 @@ _Session = None
 def get_engine():
     global _ENGINE
     if _ENGINE is None:
-        db_url = f"sqlite:///{config.DB_PATH}"
-        _ENGINE = create_engine(db_url, connect_args={"check_same_thread": False})
-        log.debug("Database engine created at %s", config.DB_PATH)
+        if config.DATABASE_URL:
+            # Postgres/Supabase: pre_ping survives pooler-dropped connections;
+            # recycle avoids stale connections behind the connection pooler.
+            _ENGINE = create_engine(
+                config.DATABASE_URL, pool_pre_ping=True, pool_recycle=300,
+            )
+            log.debug("Database engine created (external: %s)",
+                      config.DATABASE_URL.split("@")[-1])
+        else:
+            _ENGINE = create_engine(
+                f"sqlite:///{config.DB_PATH}",
+                connect_args={"check_same_thread": False},
+            )
+            log.debug("Database engine created at %s", config.DB_PATH)
     return _ENGINE
+
+
+def is_sqlite() -> bool:
+    return not config.DATABASE_URL
 
 
 def get_session() -> Session:
@@ -240,8 +255,12 @@ def init_db() -> None:
 
 
 def _migrate_columns(engine) -> None:
-    """create_all() never alters existing tables, and the CI database is
-    restored from cache — so new columns must be added by hand."""
+    """create_all() never alters existing tables, so additive columns are added
+    by hand. DB-agnostic: column detection uses SQLAlchemy's inspector (works on
+    both SQLite and Postgres); the ALTER DDL below is valid on both. On a fresh
+    Postgres DB create_all already made every column, so this is a no-op there."""
+    from sqlalchemy import inspect as sa_inspect
+
     migrations = {
         "topics": {"fail_count": "INTEGER DEFAULT 0"},
         # Kids-mode tags the video kind and links it to its Story (additive,
@@ -251,14 +270,17 @@ def _migrate_columns(engine) -> None:
             "story_id": "INTEGER",
         },
     }
-    with engine.connect() as conn:
-        for table, columns in migrations.items():
-            existing = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
-            for col, ddl in columns.items():
-                if existing and col not in existing:
+    insp = sa_inspect(engine)
+    tables = set(insp.get_table_names())
+    for table, columns in migrations.items():
+        if table not in tables:
+            continue
+        existing = {c["name"] for c in insp.get_columns(table)}
+        for col, ddl in columns.items():
+            if col not in existing:
+                with engine.begin() as conn:
                     conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
-                    log.info("DB migration: added %s.%s", table, col)
-        conn.commit()
+                log.info("DB migration: added %s.%s", table, col)
 
 
 # ── Repository helpers ────────────────────────────────────────────────────────

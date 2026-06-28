@@ -27,6 +27,9 @@ numpy>=1.26.4
 # Database
 sqlalchemy>=2.0.30
 alembic>=1.13.0
+# Postgres driver — only needed when DATABASE_URL points at Postgres/Supabase
+# (local SQLite needs no driver). psycopg2 honours ?sslmode=require.
+psycopg2-binary>=2.9.9
 
 # Validation & Config
 pydantic>=2.7.0

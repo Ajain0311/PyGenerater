@@ -37,6 +37,10 @@ class Config:
     VIDEOS_DIR: Path = _path("VIDEOS_DIR", "generated/videos")
     THUMBNAILS_DIR: Path = _path("THUMBNAILS_DIR", "generated/thumbnails")
     DB_PATH: Path = DATA_DIR / "app.db"
+    # When set, the app uses this database instead of local SQLite (e.g. a
+    # Supabase/Postgres URL so state PERSISTS and is shared between your PC and
+    # the cloud dashboard). Blank → local SQLite at DB_PATH.
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 
     # ── Gemini AI ─────────────────────────────────────────────────────────
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
