@@ -56,6 +56,10 @@ class Config:
     YOUTUBE_PRIVACY_STATUS: str = os.getenv("YOUTUBE_PRIVACY_STATUS", "public")
     YOUTUBE_CATEGORY_ID: str = os.getenv("YOUTUBE_CATEGORY_ID", "22")
     YOUTUBE_TOKEN_FILE: Path = DATA_DIR / "youtube_token.json"
+    # COPPA: a children's-content channel should usually self-declare videos as
+    # "made for kids". Defaults False to preserve legacy behaviour; the kids
+    # pipeline passes made_for_kids=True explicitly.
+    YOUTUBE_MADE_FOR_KIDS: bool = os.getenv("YOUTUBE_MADE_FOR_KIDS", "false").lower() == "true"
 
     # ── Unsplash ──────────────────────────────────────────────────────────
     UNSPLASH_ACCESS_KEY: str = os.getenv("UNSPLASH_ACCESS_KEY", "")
@@ -104,6 +108,61 @@ class Config:
     MAX_RETRIES: int = _int("MAX_RETRIES", 3)
     RETRY_DELAY: int = _int("RETRY_DELAY", 5)
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  KIDS CARTOON MODE  (the production goal — ONE quality Short per day)
+    #  All settings below are additive; the legacy "trends" path is untouched.
+    # ══════════════════════════════════════════════════════════════════════
+    # "kids"   → original kids-cartoon stories (default, the real channel).
+    # "trends" → legacy faceless viral-facts pipeline (kept, never deleted).
+    CONTENT_MODE: str = os.getenv("CONTENT_MODE", "kids")
+
+    # Story categories the Planner agent may choose from.
+    KIDS_CATEGORIES: tuple[str, ...] = (
+        "funny", "school", "animals", "magic", "friendship", "jungle", "bedtime",
+    )
+    # Kids content is Hindi-first per the channel spec ("hi" | "hinglish" | "en").
+    KIDS_LANGUAGE: str = os.getenv("KIDS_LANGUAGE", "hi")
+    # Target spoken length (seconds) for ONE daily Short, and visual shot count.
+    KIDS_TARGET_SECONDS: int = _int("KIDS_TARGET_SECONDS", 45)
+    KIDS_SCENE_COUNT: int = _int("KIDS_SCENE_COUNT", 6)
+    # How many characters a single story may feature (keeps it readable for kids).
+    KIDS_MAX_CHARACTERS: int = _int("KIDS_MAX_CHARACTERS", 3)
+
+    # ── Local image backend (fully wired in Phase 2; safe defaults now) ────
+    # auto → try local (comfyui/a1111) then fall back to gemini then gradient.
+    IMAGE_BACKEND: str = os.getenv("IMAGE_BACKEND", "auto")
+    COMFYUI_URL: str = os.getenv("COMFYUI_URL", "http://127.0.0.1:8188")
+    A1111_URL: str = os.getenv("A1111_URL", "http://127.0.0.1:7860")
+    SD_MODEL: str = os.getenv("SD_MODEL", "")          # checkpoint name; blank = backend default
+    SD_STEPS: int = _int("SD_STEPS", 24)
+    SD_CFG: float = float(os.getenv("SD_CFG", "6.5"))
+    IMAGE_TIMEOUT: int = _int("IMAGE_TIMEOUT", 600)     # CPU image gen can be slow
+
+    # ── Per-character voice engine (Phase 2; edge-tts works today) ─────────
+    # edge → free neural (default) | piper → local | coqui → local XTTS clone.
+    TTS_ENGINE: str = os.getenv("TTS_ENGINE", "edge")
+    PIPER_DIR: Path = _path("PIPER_DIR", "assets/piper")
+    NARRATOR_VOICE: str = os.getenv("NARRATOR_VOICE", "hi-IN-MadhurNeural")
+
+    # ── Lip-sync (Phase 3; optional, off by default — heavy on CPU) ────────
+    LIPSYNC_ENABLED: bool = os.getenv("LIPSYNC_ENABLED", "false").lower() == "true"
+    LIPSYNC_BACKEND: str = os.getenv("LIPSYNC_BACKEND", "wav2lip")
+
+    # ── Background music / SFX library ─────────────────────────────────────
+    MUSIC_VOLUME: float = float(os.getenv("MUSIC_VOLUME", "0.12"))
+
+    # ── New-domain data + asset dirs ───────────────────────────────────────
+    CHARACTERS_DIR: Path = _path("CHARACTERS_DIR", "assets/characters")
+    MUSIC_DIR: Path = _path("MUSIC_DIR", "assets/music")
+    SFX_DIR: Path = _path("SFX_DIR", "assets/sfx")
+    # Per-environment runtime data lives UNDER DATA_DIR, so a custom DATA_DIR
+    # (or a test override) keeps these together and out of the repo.
+    RUNS_DIR: Path = DATA_DIR / "runs"
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    STORIES_DIR: Path = DATA_DIR / "stories"
+    STORIES_DIR.mkdir(parents=True, exist_ok=True)
+    ARCHIVE_DIR: Path = _path("ARCHIVE_DIR", "generated/archive")
 
     # ── Derived sub-dirs (ensure they exist) ──────────────────────────────
     def __init_subclass__(cls) -> None:

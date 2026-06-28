@@ -18,6 +18,9 @@ generated/
 logs/
 data/app.db
 data/current_key_index.txt
+data/runs/
+data/stories/
+data/content_cache/
 
 # Temp MoviePy files
 *TEMP_MPY_wvf_snd*
@@ -40,6 +43,7 @@ desktop.ini
 # Secrets / one-time setup
 .env
 .env.*
+secrets/
 data/youtube_token.json
 RUN_SETUP_ONCE.ps1
 scripts/github_setup.py

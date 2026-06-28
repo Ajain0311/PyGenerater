@@ -689,11 +689,60 @@ def page_dashboard() -> None:
         else:
             st.info("No data to chart yet.")
 
+    st.divider()
+    render_upload_scheduler()
     render_background_runs()
 
 
+def render_upload_scheduler(compact: bool = False) -> None:
+    """Auto-upload scheduler panel: status, the 24h timer, and the toggle.
+
+    Manual uploads are unaffected by any of this — they're always allowed.
+    """
+    from src.scheduler import UploadScheduler
+    s = get_session()
+    try:
+        sched = UploadScheduler(s)
+        status = sched.status()
+
+        st.markdown("#### ⏱️ Auto-Upload Scheduler")
+        st.caption("Manual uploads are always allowed. Automatic uploads run at "
+                   "most once every 24h and never reset when you upload manually.")
+
+        top = st.columns([1.5, 1, 1])
+        with top[0]:
+            enabled = st.toggle("Automatic upload", value=status["auto_enabled"],
+                                key="sched_auto_toggle")
+            if enabled != status["auto_enabled"]:
+                sched.set_auto_enabled(enabled)
+                st.rerun()
+            st.markdown("🟢 **Enabled**" if status["auto_enabled"] else "🔴 **Disabled**")
+        top[1].metric("Interval", f"{status['interval_hours']:.0f}h")
+        if top[2].button("🔄 Refresh", key="sched_refresh"):
+            st.rerun()
+
+        m = st.columns(4)
+        m[0].metric("Last Manual Upload", status["last_manual_str"])
+        m[1].metric("Last Automatic Upload", status["last_auto_str"])
+        m[2].metric("Next Automatic Upload", status["next_auto_str"])
+        m[3].metric("Countdown", status["countdown"])
+
+        if not status["auto_enabled"]:
+            st.info("Automatic uploading is disabled. Turn the toggle on to resume the 24h cycle.")
+        elif status["can_auto_now"]:
+            st.success("✅ Automatic upload is eligible now — " + status["reason"])
+        else:
+            st.warning("⏳ " + status["reason"])
+    finally:
+        s.close()
+
+
 def page_automation() -> None:
-    page_header("Automation", "Trigger, monitor and control the GitHub Actions pipeline.")
+    page_header("Automation", "Auto-upload schedule + the GitHub Actions pipeline.")
+
+    render_upload_scheduler()
+    st.divider()
+
 
     repo = _gh_repo()
     token_ok = bool(_gh_token())
@@ -968,27 +1017,20 @@ def page_topics() -> None:
 
 
 def _upload_single(video_id: int) -> bool:
+    # Manual upload from the dashboard: ALWAYS allowed (no 24h gate). Routed
+    # through the upload service so it stamps last_manual_at and NEVER touches
+    # the automatic-upload timer.
     s = get_session()
     try:
         video = s.get(Video, video_id)
         if not video or not video.video_path:
             st.error("Video not found or has no rendered file.")
             return False
-        from src.youtube_uploader import YouTubeUploader
+        from src.upload_service import upload_video
         with st.spinner(f"Uploading '{(video.title or 'Short')[:40]}'…"):
-            result = YouTubeUploader().upload(
-                video_path=Path(video.video_path),
-                title=video.title or "Trending Short",
-                description=video.description or "",
-                tags=video.hashtags_list,
-                thumbnail_path=Path(video.thumbnail_path) if video.thumbnail_path else None,
-            )
-            VideoRepo(s).update_status(
-                video_id, "uploaded", youtube_id=result["id"],
-                youtube_url=result["url"], uploaded_at=datetime.utcnow(),
-            )
+            result = upload_video(video_id, mode="manual", session=s)
         st.toast("Uploaded!", icon="✅")
-        return True
+        return bool(result.get("uploaded"))
     except Exception as e:
         st.error(f"Upload failed: {e}")
         return False

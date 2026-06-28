@@ -158,11 +158,13 @@ class YouTubeUploader:
         thumbnail_path: Optional[Path] = None,
         category_id: str | None = None,
         privacy_status: str | None = None,
+        made_for_kids: bool | None = None,
     ) -> dict:
         """Upload video to YouTube. Returns upload response dict."""
         service = self._get_service()
         cat_id = category_id or config.YOUTUBE_CATEGORY_ID
         privacy = privacy_status or config.YOUTUBE_PRIVACY_STATUS
+        kids = config.YOUTUBE_MADE_FOR_KIDS if made_for_kids is None else made_for_kids
 
         log.info("Uploading video: %s", video_path.name)
 
@@ -177,7 +179,7 @@ class YouTubeUploader:
             },
             "status": {
                 "privacyStatus": privacy,
-                "selfDeclaredMadeForKids": False,
+                "selfDeclaredMadeForKids": bool(kids),
             },
         }
 

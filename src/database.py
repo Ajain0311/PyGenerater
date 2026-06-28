@@ -92,6 +92,8 @@ class Video(Base):
     youtube_url = Column(String(200), nullable=True)
     status = Column(String(30), default="pending")
     # status: pending | generating | generated | uploading | uploaded | failed
+    kind = Column(String(20), default="trends")   # "kids" | "trends"
+    story_id = Column(Integer, ForeignKey("stories.id"), nullable=True)
     error_message = Column(Text, nullable=True)
     gemini_input_tokens = Column(Integer, default=0)
     gemini_output_tokens = Column(Integer, default=0)
@@ -126,6 +128,107 @@ class DailyAnalytics(Base):
     notes = Column(Text, nullable=True)
 
 
+# ── Kids-cartoon domain ─────────────────────────────────────────────────────--
+
+class Character(Base):
+    """A reusable, ORIGINAL cartoon character. The appearance_prompt + seed are
+    what keep the same character looking consistent across scenes and videos."""
+
+    __tablename__ = "characters"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True)
+    slug = Column(String(120), unique=True)
+    species = Column(String(120))          # "baby elephant", "parrot", "little girl"
+    personality = Column(Text)             # drives the Dialogue agent
+    description = Column(Text)             # short bio shown in the dashboard
+    clothes = Column(Text)                # wardrobe — part of visual identity
+    appearance_prompt = Column(Text)       # CONSISTENCY tokens for image gen
+    negative_prompt = Column(Text, default="")
+    seed = Column(Integer, default=0)      # fixed SD seed → stable look
+    reference_image = Column(String(500))  # portrait/turnaround path
+    # Voice identity (per-character, used by the Voice agent)
+    voice_engine = Column(String(40), default="edge")     # edge | piper | coqui
+    voice_id = Column(String(120), default="")            # e.g. hi-IN-MadhurNeural
+    voice_rate = Column(String(12), default="+0%")
+    voice_pitch = Column(String(12), default="+0Hz")
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def __repr__(self) -> str:
+        return f"<Character id={self.id} name={self.name!r} species={self.species!r}>"
+
+
+class Story(Base):
+    """A generated kids-cartoon story. package_json holds the full StoryPackage
+    (the single source of truth the renderer + dashboard read back)."""
+
+    __tablename__ = "stories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(300))
+    category = Column(String(60))
+    language = Column(String(10), default="hi")
+    logline = Column(Text)
+    moral = Column(Text)
+    characters = Column(Text)         # JSON list of character names
+    package_json = Column(Text)       # full StoryPackage as JSON
+    status = Column(String(30), default="draft")   # draft | ready | used
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    @property
+    def characters_list(self) -> list[str]:
+        try:
+            return json.loads(self.characters or "[]")
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+
+class PipelineRun(Base):
+    """One end-to-end generation attempt. Persisted per-step so a crashed or
+    partial run can RESUME, and any single failed step can be REGENERATED."""
+
+    __tablename__ = "pipeline_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_uid = Column(String(80), unique=True, nullable=False)
+    mode = Column(String(20), default="kids")
+    video_id = Column(Integer, ForeignKey("videos.id"), nullable=True)
+    story_id = Column(Integer, ForeignKey("stories.id"), nullable=True)
+    status = Column(String(30), default="running")  # running|done|failed|partial
+    current_step = Column(String(40))
+    steps_json = Column(Text)         # [{name,status,artifact,error,ts}, …]
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    @property
+    def steps(self) -> list[dict]:
+        try:
+            return json.loads(self.steps_json or "[]")
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+
+class UploadSchedule(Base):
+    """Singleton (id=1) holding the upload scheduler state.
+
+    Manual and automatic uploads are tracked INDEPENDENTLY: only a successful
+    *automatic* upload advances `last_auto_at` (and therefore the 24h gate);
+    manual uploads only stamp `last_manual_at` and never affect the auto timer.
+    """
+
+    __tablename__ = "upload_schedule"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    auto_enabled = Column(Boolean, default=True)
+    interval_hours = Column(Float, default=24.0)
+    last_manual_at = Column(DateTime, nullable=True)
+    last_auto_at = Column(DateTime, nullable=True)     # last SUCCESSFUL auto upload
+    last_auto_video_id = Column(Integer, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 def init_db() -> None:
@@ -141,6 +244,12 @@ def _migrate_columns(engine) -> None:
     restored from cache — so new columns must be added by hand."""
     migrations = {
         "topics": {"fail_count": "INTEGER DEFAULT 0"},
+        # Kids-mode tags the video kind and links it to its Story (additive,
+        # so legacy rows simply default to 'trends'/NULL).
+        "videos": {
+            "kind": "VARCHAR(20) DEFAULT 'trends'",
+            "story_id": "INTEGER",
+        },
     }
     with engine.connect() as conn:
         for table, columns in migrations.items():
@@ -334,4 +443,144 @@ class AnalyticsRepo:
             .order_by(DailyAnalytics.date.desc())
             .limit(days)
             .all()
+        )
+
+
+# ── Kids-domain repositories ────────────────────────────────────────────────--
+
+class CharacterRepo:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create(self, **kwargs) -> Character:
+        c = Character(**kwargs)
+        self.session.add(c)
+        self.session.commit()
+        return c
+
+    def upsert(self, **kwargs) -> Character:
+        """Insert, or update an existing character matched by name (idempotent
+        seeding)."""
+        name = kwargs.get("name")
+        existing = self.session.query(Character).filter_by(name=name).first()
+        if existing:
+            for k, v in kwargs.items():
+                setattr(existing, k, v)
+            self.session.commit()
+            return existing
+        return self.create(**kwargs)
+
+    def get(self, character_id: int) -> Optional[Character]:
+        return self.session.get(Character, character_id)
+
+    def by_name(self, name: str) -> Optional[Character]:
+        return self.session.query(Character).filter_by(name=name).first()
+
+    def get_active(self) -> list[Character]:
+        return (
+            self.session.query(Character)
+            .filter_by(is_active=True)
+            .order_by(Character.name.asc())
+            .all()
+        )
+
+    def get_all(self) -> list[Character]:
+        return self.session.query(Character).order_by(Character.name.asc()).all()
+
+    def update(self, character_id: int, **fields) -> Optional[Character]:
+        c = self.session.get(Character, character_id)
+        if c:
+            for k, v in fields.items():
+                setattr(c, k, v)
+            self.session.commit()
+        return c
+
+    def delete(self, character_id: int) -> None:
+        c = self.session.get(Character, character_id)
+        if c:
+            self.session.delete(c)
+            self.session.commit()
+
+    def count(self) -> int:
+        return self.session.query(Character).count()
+
+
+class StoryRepo:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create(self, **kwargs) -> Story:
+        s = Story(**kwargs)
+        self.session.add(s)
+        self.session.commit()
+        return s
+
+    def get(self, story_id: int) -> Optional[Story]:
+        return self.session.get(Story, story_id)
+
+    def update(self, story_id: int, **fields) -> Optional[Story]:
+        s = self.session.get(Story, story_id)
+        if s:
+            for k, v in fields.items():
+                setattr(s, k, v)
+            self.session.commit()
+        return s
+
+    def get_all(self, limit: int = 100) -> list[Story]:
+        return (
+            self.session.query(Story)
+            .order_by(Story.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+    def delete(self, story_id: int) -> None:
+        s = self.session.get(Story, story_id)
+        if s:
+            self.session.delete(s)
+            self.session.commit()
+
+
+class PipelineRunRepo:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create(self, run_uid: str, mode: str = "kids", **extra) -> PipelineRun:
+        r = PipelineRun(run_uid=run_uid, mode=mode, **extra)
+        self.session.add(r)
+        self.session.commit()
+        return r
+
+    def get(self, run_id: int) -> Optional[PipelineRun]:
+        return self.session.get(PipelineRun, run_id)
+
+    def by_uid(self, run_uid: str) -> Optional[PipelineRun]:
+        return self.session.query(PipelineRun).filter_by(run_uid=run_uid).first()
+
+    def save_steps(self, run_id: int, steps: list[dict], current_step: str = "",
+                   status: str = "running", **extra) -> None:
+        r = self.session.get(PipelineRun, run_id)
+        if not r:
+            return
+        r.steps_json = json.dumps(steps, ensure_ascii=False)
+        r.current_step = current_step
+        r.status = status
+        r.updated_at = datetime.utcnow()
+        for k, v in extra.items():
+            setattr(r, k, v)
+        self.session.commit()
+
+    def get_recent(self, limit: int = 20) -> list[PipelineRun]:
+        return (
+            self.session.query(PipelineRun)
+            .order_by(PipelineRun.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+    def latest(self) -> Optional[PipelineRun]:
+        return (
+            self.session.query(PipelineRun)
+            .order_by(PipelineRun.created_at.desc())
+            .first()
         )
