@@ -44,9 +44,12 @@ class PromptAgent(Agent):
             # Lead character's fixed seed → stable identity; offset per scene so
             # shots differ in pose/angle but keep the same character look.
             lead_seed = next((int(c.get("seed") or 0) for c in present if c.get("seed")), 0)
-            scene_seeds.append((lead_seed + sc.index) if lead_seed else 0)
-            scene_negs.append(", ".join(dict.fromkeys(negatives)))
+            sc.seed = (lead_seed + sc.index) if lead_seed else 0
+            sc.negative_prompt = ", ".join(dict.fromkeys(negatives))
+            scene_seeds.append(sc.seed)
+            scene_negs.append(sc.negative_prompt)
 
+        # Persist on the package (scenes) AND in notes for the current process.
         ctx.notes["scene_seeds"] = scene_seeds
         ctx.notes["scene_negatives"] = scene_negs
         self.log.info("Built %d image prompts (consistency seeds=%s)",

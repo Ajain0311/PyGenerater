@@ -357,9 +357,15 @@ class Orchestrator:
         return ctx.notes.get("slug") or f"{sanitise_filename(ctx.package.title or 'story')}_{int(time.time())}"
 
     def _step_images(self, ctx, state):
-        from src.image_generator import ImageGenerator
+        from src.image_backends import render_scene_images
         slug = self._slug(ctx)
-        paths = ImageGenerator().generate_scene_images(ctx.package.image_prompts, slug)
+        scenes = ctx.package.scenes
+        # Prefer consistency data persisted on the scenes (survives resume);
+        # fall back to in-process notes.
+        seeds = [sc.seed for sc in scenes] or ctx.notes.get("scene_seeds")
+        negs = [sc.negative_prompt for sc in scenes] or ctx.notes.get("scene_negatives")
+        paths = render_scene_images(
+            ctx.package.image_prompts, slug, seeds=seeds, negatives=negs)
         ctx.notes["image_paths"] = [str(p) for p in paths]
         return {"path": [str(p) for p in paths], "count": len(paths)}
 

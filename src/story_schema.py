@@ -42,6 +42,8 @@ class Scene:
     narration: str = ""                    # narrator voiceover text for this beat
     dialogue: list[DialogueLine] = field(default_factory=list)
     image_prompt: str = ""                 # filled by PromptAgent (consistency tokens)
+    negative_prompt: str = ""              # kid-safe + per-character negatives
+    seed: int = 0                          # fixed seed → stable character look
     seconds: float = 0.0                   # estimated on-screen duration
 
     def to_dict(self) -> dict[str, Any]:
@@ -58,6 +60,8 @@ class Scene:
             narration=str(d.get("narration", "")).strip(),
             dialogue=[DialogueLine.from_dict(x) for x in (d.get("dialogue") or [])],
             image_prompt=str(d.get("image_prompt", "")).strip(),
+            negative_prompt=str(d.get("negative_prompt", "")).strip(),
+            seed=int(d.get("seed", 0) or 0),
             seconds=float(d.get("seconds", 0.0) or 0.0),
         )
 
