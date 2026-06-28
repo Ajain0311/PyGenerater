@@ -63,6 +63,7 @@ NAV = {
     "Dashboard": "🏠",
     "Automation": "🤖",
     "Create Video": "🎬",
+    "Characters": "🧸",
     "Topics": "🔥",
     "Videos": "📚",
     "Analytics": "📊",
@@ -692,6 +693,101 @@ def page_dashboard() -> None:
     st.divider()
     render_upload_scheduler()
     render_background_runs()
+
+
+def page_characters() -> None:
+    page_header("Characters",
+                "Your original cast — the consistent look + voice behind every video.")
+    import src.character_service as cs
+
+    # ── Import / Export ──────────────────────────────────────────────────
+    with st.expander("📤 Import / Export roster"):
+        c1, c2 = st.columns(2)
+        try:
+            export_json = cs.export_characters()
+        except Exception as e:
+            export_json = "{}"
+            c1.error(f"Export failed: {e}")
+        c1.download_button("⬇️ Export all (JSON)", export_json,
+                           file_name="characters.json", mime="application/json")
+        up = c2.file_uploader("Import characters (JSON)", type=["json"], key="char_imp")
+        if up is not None and c2.button("Import now", key="char_imp_btn"):
+            n, errs = cs.import_characters(up.getvalue().decode("utf-8", "replace"))
+            if n:
+                st.success(f"Imported {n} character(s).")
+            for e in errs:
+                st.warning(e)
+            if n:
+                st.rerun()
+
+    # ── Roster ───────────────────────────────────────────────────────────
+    try:
+        chars = cs.list_characters()
+    except Exception as e:
+        st.error(f"Could not load characters: {e}")
+        chars = []
+    st.markdown(f"#### Roster ({len(chars)})")
+    if not chars:
+        st.info("No characters yet. Add one below, or run "
+                "`python scripts/seed_characters.py` for the starter cast.")
+    for c in chars:
+        cols = st.columns([4, 1, 1])
+        cols[0].markdown(
+            f"<div class='card'><div class='row'>"
+            f"<span class='title'>{'🟢' if c['is_active'] else '⚪'} {c['name']}</span>"
+            f"<span class='meta'>{c['species'] or ''}</span></div>"
+            f"<div class='meta' style='margin-top:6px'>{(c['personality'] or '')[:90]}</div>"
+            f"<div class='meta'>🎤 {c['voice_id'] or '—'} · seed {c['seed']}</div></div>",
+            unsafe_allow_html=True)
+        if cols[1].button("✏️ Edit", key=f"edit_{c['id']}"):
+            st.session_state["edit_char_id"] = c["id"]
+            st.rerun()
+        if cols[2].button("🗑️ Delete", key=f"del_{c['id']}"):
+            cs.delete_character(c["id"])
+            st.toast("Deleted", icon="🗑️")
+            st.session_state.pop("edit_char_id", None)
+            st.rerun()
+
+    # ── Create / Edit form ───────────────────────────────────────────────
+    edit_id = st.session_state.get("edit_char_id")
+    current = next((c for c in chars if c["id"] == edit_id), None) if edit_id else None
+    st.divider()
+    st.markdown("#### " + ("✏️ Edit character" if current else "➕ New character"))
+    g = current or {}
+    with st.form("char_form"):
+        name = st.text_input("Name *", g.get("name", ""))
+        a, b = st.columns(2)
+        species = a.text_input("Species / type", g.get("species", ""))
+        clothes = b.text_input("Clothes / signature item", g.get("clothes", ""))
+        personality = st.text_area("Personality", g.get("personality", ""), height=70)
+        description = st.text_area("Short bio", g.get("description", ""), height=70)
+        appearance = st.text_area(
+            "Appearance prompt (consistency tokens) *", g.get("appearance_prompt", ""),
+            height=80,
+            help="Exact visual tokens reused in every image so the character looks identical across shots.")
+        negative = st.text_input("Negative prompt", g.get("negative_prompt", ""))
+        c1, c2, c3 = st.columns(3)
+        seed = c1.number_input("Seed", min_value=0, step=1, value=int(g.get("seed", 0) or 0))
+        voice_id = c2.text_input("Voice (edge-tts id)", g.get("voice_id", "") or "hi-IN-MadhurNeural")
+        is_active = c3.checkbox("Active", value=bool(g.get("is_active", True)))
+        v1, v2 = st.columns(2)
+        rate = v1.text_input("Voice rate", g.get("voice_rate", "+0%") or "+0%")
+        pitch = v2.text_input("Voice pitch", g.get("voice_pitch", "+0Hz") or "+0Hz")
+        if st.form_submit_button("💾 Save", type="primary"):
+            try:
+                cs.save_character(dict(
+                    name=name, species=species, clothes=clothes, personality=personality,
+                    description=description, appearance_prompt=appearance, negative_prompt=negative,
+                    seed=int(seed), voice_id=voice_id, voice_rate=rate, voice_pitch=pitch,
+                    is_active=is_active), character_id=edit_id)
+                st.session_state.pop("edit_char_id", None)
+                st.success(f"Saved {name}.")
+                st.rerun()
+            except Exception as e:
+                st.error(str(e))
+    if current and st.button("Cancel edit"):
+        st.session_state.pop("edit_char_id", None)
+        st.rerun()
 
 
 def render_upload_scheduler(compact: bool = False) -> None:
@@ -1549,6 +1645,7 @@ def main() -> None:
         "Dashboard": page_dashboard,
         "Automation": page_automation,
         "Create Video": page_create_video,
+        "Characters": page_characters,
         "Topics": page_topics,
         "Videos": page_videos,
         "Analytics": page_analytics,

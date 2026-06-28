@@ -103,51 +103,69 @@ def _repair_truncated_json(text: str) -> dict[str, Any] | None:
 
 
 # ── Gemini implementation (free tier) ────────────────────────────────────────
+_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+
+
 class GeminiLLM:
-    """Free-tier Gemini with automatic key rotation + truncation-safe JSON."""
+    """Free-tier Gemini over the REST API (no google-genai SDK dependency, so it
+    runs on Python 3.14 too). Automatic key rotation + truncation-safe JSON.
 
-    def __init__(self, model: str | None = None):
+    `http_post` is injectable ((url, json_body) -> dict) for testing against the
+    live API without the `requests` TLS path; production uses `requests`.
+    """
+
+    def __init__(self, model: str | None = None, http_post=None):
         self.model = model or config.GEMINI_MODEL
+        self._http_post = http_post
 
-    def _client(self):
-        from google import genai  # lazy: heavy + optional during dev
-        from src.key_manager import get_active_key
-        return genai.Client(api_key=get_active_key())
+    def _post(self, url: str, body: dict) -> dict:
+        if self._http_post is not None:
+            return self._http_post(url, body)
+        import requests
+        r = requests.post(url, json=body, timeout=90)
+        try:
+            return r.json()
+        except Exception:
+            return {"error": {"message": f"HTTP {r.status_code}: {r.text[:200]}"}}
 
     def complete_json(
         self, prompt: str, *, temperature: float = 0.9, max_output_tokens: int | None = None,
         _attempt: int = 0,
     ) -> LLMResponse:
-        from google.genai import types
         from src.analytics import calculate_gemini_cost
-        from src.key_manager import rotate_key
+        from src.key_manager import get_active_key, rotate_key
 
         if _attempt >= 20:
             raise RuntimeError("All Gemini API keys exhausted.")
 
-        cfg: dict[str, Any] = dict(
-            temperature=temperature,
-            top_p=0.95,
-            max_output_tokens=max_output_tokens or config.GEMINI_MAX_OUTPUT_TOKENS,
-            response_mime_type="application/json",
-        )
+        gen_cfg: dict[str, Any] = {
+            "temperature": temperature, "topP": 0.95,
+            "maxOutputTokens": max_output_tokens or config.GEMINI_MAX_OUTPUT_TOKENS,
+            "responseMimeType": "application/json",
+        }
         # 2.5 models "think" by default; thinking tokens eat the output cap and
-        # truncate JSON. Disable it where the model allows.
+        # truncate JSON. Disable where the model allows.
         if "2.5-pro" not in self.model:
-            cfg["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+            gen_cfg["thinkingConfig"] = {"thinkingBudget": 0}
+        body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen_cfg}
+        key = get_active_key()
+        url = f"{_GEMINI_BASE}/models/{self.model}:generateContent?key={key}"
 
         try:
-            resp = self._client().models.generate_content(
-                model=self.model, contents=prompt,
-                config=types.GenerateContentConfig(**cfg),
-            )
-            raw = (resp.text or "").strip()
-            usage = getattr(resp, "usage_metadata", None)
-            in_tok = getattr(usage, "prompt_token_count", 0) or 0
-            out_tok = getattr(usage, "candidates_token_count", 0) or 0
-            data = parse_json_lenient(raw)
+            data = self._post(url, body)
+            if isinstance(data, dict) and data.get("error"):
+                raise RuntimeError(str(data["error"].get("message", data["error"])))
+            cands = data.get("candidates") or []
+            raw = ""
+            if cands:
+                parts = cands[0].get("content", {}).get("parts", []) or []
+                raw = "".join(p.get("text", "") for p in parts).strip()
+            usage = data.get("usageMetadata", {}) or {}
+            in_tok = usage.get("promptTokenCount", 0) or 0
+            out_tok = usage.get("candidatesTokenCount", 0) or 0
+            parsed = parse_json_lenient(raw)
             return LLMResponse(
-                data=data, input_tokens=in_tok, output_tokens=out_tok,
+                data=parsed, input_tokens=in_tok, output_tokens=out_tok,
                 cost_usd=calculate_gemini_cost(in_tok, out_tok), raw=raw,
             )
         except Exception as exc:
