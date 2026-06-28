@@ -51,3 +51,6 @@ aiofiles>=23.2.1
 python-slugify>=8.0.4
 colorlog>=6.8.2
 tqdm>=4.66.4
+
+# Local scheduler (optional — run_scheduler.py falls back to a simple loop)
+apscheduler>=3.10.4
