@@ -112,6 +112,25 @@ def save_character(data: dict[str, Any], character_id: int | None = None,
     return _to_dict(c)
 
 
+def save_reference_image(slug: str, data: bytes, suffix: str = ".png") -> str:
+    """Save uploaded character art to assets/characters/ and return a
+    REPO-RELATIVE path (so GitHub Actions, with a different cwd, resolves it
+    after the file is committed)."""
+    from src.config import config
+    config.CHARACTERS_DIR.mkdir(parents=True, exist_ok=True)
+    out = config.CHARACTERS_DIR / f"{slug}{suffix}"
+    out.write_bytes(data)
+    try:
+        return str(out.relative_to(config.BASE_DIR)).replace("\\", "/")
+    except ValueError:
+        return str(out)
+
+
+def set_reference_image(character_id: int, ref: str, session=None) -> None:
+    session = session or get_session()
+    CharacterRepo(session).update(character_id, reference_image=ref)
+
+
 def delete_character(character_id: int, session=None) -> None:
     session = session or get_session()
     CharacterRepo(session).delete(character_id)

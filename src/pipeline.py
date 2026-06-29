@@ -409,12 +409,28 @@ class Orchestrator:
         from src.video_generator import VideoGenerator
         slug = self._slug(ctx)
         imgs = [Path(p) for p in (ctx.notes.get("image_paths") or [])]
+        # Resolve uploaded character art → puppet/cutout mode (free, no GPU).
+        # If no character has art, this stays empty and the renderer uses the
+        # existing kinetic style.
+        char_images: dict[str, str] = {}
+        for c in ctx.roster:
+            ref = c.get("reference_image")
+            if not ref:
+                continue
+            p = Path(ref)
+            if not p.is_absolute():
+                p = config.BASE_DIR / ref
+            if p.exists():
+                char_images[c["name"]] = str(p)
+        if char_images:
+            log.info("Puppet mode: art for %s", list(char_images))
         path = VideoGenerator().generate(
             title=ctx.package.title, script=ctx.package.script,
             subtitle_segments=self._word_segments(ctx),
             image_paths=imgs, audio_path=Path(ctx.notes["audio_path"]),
             slug=slug, hook=ctx.package.hook, cta=ctx.package.cta,
             language=ctx.package.language,
+            scenes=ctx.package.scenes, character_images=char_images or None,
         )
         ctx.notes["video_path"] = str(path)
         self._record_video(ctx)

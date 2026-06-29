@@ -764,8 +764,20 @@ def page_characters() -> None:
     st.divider()
     st.markdown("#### " + ("✏️ Edit character" if current else "➕ New character"))
     g = current or {}
+    # Show current art (the cutout used in puppet/cutout render mode).
+    if g.get("reference_image"):
+        from pathlib import Path as _P
+        rp = _P(g["reference_image"])
+        if not rp.is_absolute():
+            rp = config.BASE_DIR / g["reference_image"]
+        if rp.exists():
+            st.image(str(rp), width=140, caption="current art")
     with st.form("char_form"):
         name = st.text_input("Name *", g.get("name", ""))
+        art = st.file_uploader(
+            "Character art (PNG — transparent cutout looks best)", type=["png", "webp"],
+            help="Used as an animated cutout over backgrounds (free, no GPU). "
+                 "Commit assets/characters/ so GitHub Actions can use it too.")
         a, b = st.columns(2)
         species = a.text_input("Species / type", g.get("species", ""))
         clothes = b.text_input("Clothes / signature item", g.get("clothes", ""))
@@ -785,11 +797,16 @@ def page_characters() -> None:
         pitch = v2.text_input("Voice pitch", g.get("voice_pitch", "+0Hz") or "+0Hz")
         if st.form_submit_button("💾 Save", type="primary"):
             try:
-                cs.save_character(dict(
+                saved = cs.save_character(dict(
                     name=name, species=species, clothes=clothes, personality=personality,
                     description=description, appearance_prompt=appearance, negative_prompt=negative,
                     seed=int(seed), voice_id=voice_id, voice_rate=rate, voice_pitch=pitch,
                     is_active=is_active), character_id=edit_id)
+                if art is not None:
+                    suffix = ".webp" if art.name.lower().endswith(".webp") else ".png"
+                    ref = cs.save_reference_image(saved["slug"], art.getvalue(), suffix)
+                    cs.set_reference_image(saved["id"], ref)
+                    st.caption(f"Art saved → {ref} (commit assets/characters/ for Actions).")
                 st.session_state.pop("edit_char_id", None)
                 st.success(f"Saved {name}.")
                 st.rerun()

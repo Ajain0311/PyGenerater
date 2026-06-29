@@ -437,6 +437,89 @@ def _progress_bar_clip(duration: float):
     return VideoClip(make_frame, duration=duration).with_position(("center", 0))
 
 
+# ── Character cutout / puppet layer ───────────────────────────────────────────
+def _load_cutout(path) -> Image.Image | None:
+    """Load a character PNG as RGBA. Transparent cutouts look best, but an opaque
+    image still works (it just shows as a card)."""
+    try:
+        if not path or not Path(path).exists():
+            return None
+        return Image.open(path).convert("RGBA")
+    except Exception as e:
+        log.warning("cutout load failed %s: %s", path, e)
+        return None
+
+
+def _scene_windows(scenes, duration: float) -> list[tuple[float, float]]:
+    """Time window per scene, proportional to each scene's spoken text so a
+    wordier beat stays on screen longer. Falls back to equal slices."""
+    weights = []
+    for sc in scenes:
+        txt = (getattr(sc, "narration", "") or "") + " ".join(
+            dl.text for dl in getattr(sc, "dialogue", []) or [])
+        weights.append(max(len(txt.split()), 1))
+    total = sum(weights) or 1
+    out, cursor = [], 0.0
+    for w in weights:
+        dur = duration * w / total
+        out.append((cursor, min(cursor + dur, duration)))
+        cursor += dur
+    if out:
+        out[-1] = (out[-1][0], duration)
+    return out
+
+
+def _character_clip(img: Image.Image, t0: float, dur: float, cx: int, target_h: int):
+    """A character cutout placed at horizontal centre `cx`, animated with a
+    fade-in, a gentle vertical bob and a subtle breathing scale so it reads as
+    'alive' rather than a pasted sticker."""
+    from moviepy import ImageClip, vfx
+    import math
+
+    iw, ih = img.size
+    scale = target_h / max(ih, 1)
+    base = img.resize((max(1, int(iw * scale)), target_h), Image.LANCZOS)
+    arr = np.array(base)
+    cw = base.width
+    y_mid = int(H * 0.46)            # vertical anchor (centre of the character)
+
+    def pos(t):
+        bob = 10 * math.sin(2 * math.pi * (t / 2.6))      # ~2.6s bob cycle
+        intro = 60 * max(0.0, 1 - t / 0.4)                # slide-up entrance
+        return (cx - cw / 2, y_mid - target_h / 2 + bob + intro)
+
+    clip = (ImageClip(arr, transparent=True)
+            .with_start(t0).with_duration(dur)
+            .resized(lambda t: 1.0 + 0.02 * math.sin(2 * math.pi * (t / 3.1)))  # breathe
+            .with_position(pos)
+            .with_effects([vfx.CrossFadeIn(min(0.35, dur / 2))]))
+    return clip
+
+
+def _character_layers(scenes, character_images: dict, duration: float) -> list:
+    """One animated cutout per character present in each scene, laid out across
+    the frame and confined to that scene's time window."""
+    if not scenes or not character_images:
+        return []
+    windows = _scene_windows(scenes, duration)
+    target_h = int(H * 0.52)
+    layers = []
+    for sc, (t0, t1) in zip(scenes, windows):
+        present = [n for n in (sc.characters or []) if character_images.get(n)]
+        if not present:
+            continue
+        n = len(present)
+        for i, name in enumerate(present):
+            img = _load_cutout(character_images[name])
+            if img is None:
+                continue
+            # spread characters across the central band
+            cx = int(W * (i + 1) / (n + 1))
+            scale = 1.0 if n == 1 else 0.82       # shrink a little when sharing the frame
+            layers.append(_character_clip(img, t0, max(0.1, t1 - t0), cx, int(target_h * scale)))
+    return layers
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 class VideoGenerator:
     def generate(
@@ -450,6 +533,8 @@ class VideoGenerator:
         hook: str | None = None,
         cta: str | None = None,
         language: str = "en",
+        scenes: list | None = None,
+        character_images: dict | None = None,
     ) -> Path:
         out_path = config.VIDEOS_DIR / f"{slug}.mp4"
         if out_path.exists() and out_path.stat().st_size > 0:
@@ -462,12 +547,14 @@ class VideoGenerator:
             log.info("Warm scene palette detected — switching highlight to cyan")
         try:
             return self._render(out_path, slug, image_paths, audio_path,
-                                subtitle_segments, hook, cta, title)
+                                subtitle_segments, hook, cta, title,
+                                scenes=scenes, character_images=character_images)
         finally:
             _HL_OVERRIDE = None
 
     def _render(self, out_path: Path, slug: str, image_paths, audio_path,
-                subtitle_segments, hook, cta, title) -> Path:
+                subtitle_segments, hook, cta, title,
+                scenes=None, character_images=None) -> Path:
         from moviepy import AudioFileClip, CompositeVideoClip, ImageClip, afx
 
         audio = AudioFileClip(str(audio_path))
@@ -493,6 +580,11 @@ class VideoGenerator:
         layers = [bg]
         layers.extend(flash_clips)
         layers.append(ImageClip(_legibility_overlay(), transparent=True).with_duration(duration))
+        # Character cutouts (puppet mode) sit above the background but below text.
+        char_layers = _character_layers(scenes or [], character_images or {}, duration)
+        if char_layers:
+            layers.extend(char_layers)
+            log.info("Puppet mode: %d character cutout layer(s)", len(char_layers))
         layers.append(_progress_bar_clip(duration))
         layers.extend(_caption_clips(cues, duration, cap_limit=cap_limit, cap_start=hook_dur))
 
