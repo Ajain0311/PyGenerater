@@ -48,3 +48,6 @@ secrets/
 data/youtube_token.json
 RUN_SETUP_ONCE.ps1
 scripts/github_setup.py
+
+# Downloaded CI artifacts
+cloud_output/

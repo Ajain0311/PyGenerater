@@ -60,6 +60,8 @@ class Config:
     YOUTUBE_PRIVACY_STATUS: str = os.getenv("YOUTUBE_PRIVACY_STATUS", "public")
     YOUTUBE_CATEGORY_ID: str = os.getenv("YOUTUBE_CATEGORY_ID", "22")
     YOUTUBE_TOKEN_FILE: Path = DATA_DIR / "youtube_token.json"
+    # Disable automatic YouTube uploads (from scheduler, cron or auto jobs)
+    DISABLE_AUTO_UPLOAD: bool = os.getenv("DISABLE_AUTO_UPLOAD", "true").lower() == "true"
     # COPPA: a children's-content channel should usually self-declare videos as
     # "made for kids". Defaults False to preserve legacy behaviour; the kids
     # pipeline passes made_for_kids=True explicitly.

@@ -50,6 +50,9 @@ def upload_video(
 
     # AUTOMATIC uploads respect the 24h gate; MANUAL uploads never do.
     if mode == "auto":
+        if config.DISABLE_AUTO_UPLOAD:
+            log.info("Auto upload is disabled in config. Skipping upload for video %s.", video_id)
+            return {"skipped": True, "reason": "Automatic upload is disabled in config"}
         allowed, reason = sched.can_auto_upload()
         if not allowed:
             log.info("Auto upload skipped for video %s: %s", video_id, reason)

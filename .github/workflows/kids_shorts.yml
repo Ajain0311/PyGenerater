@@ -1,11 +1,9 @@
-name: Daily Kids Cartoon Short
+name: Weekly Kids Cartoon Short
 
-# Scheduler for the AUTOMATIC daily upload. The 24h gate lives in the database
-# (Supabase via DATABASE_URL), so this can fire more than once a day and still
-# upload at most once / 24h. Manual uploads from the dashboard are unaffected.
+# Scheduler for the AUTOMATIC weekly upload.
 on:
   schedule:
-    - cron: "30 2 * * *"     # 02:30 UTC daily (~08:00 IST). Gate enforces once/24h.
+    - cron: "30 2 * * 0"     # 02:30 UTC weekly on Sundays (~08:00 IST).
   workflow_dispatch:
     inputs:
       category:

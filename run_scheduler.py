@@ -50,6 +50,13 @@ def main() -> None:
                     help="seconds between gate checks (default 3600)")
     args = ap.parse_args()
 
+    from src.config import config
+    import sys
+
+    if config.DISABLE_AUTO_UPLOAD:
+        log.warning("Automatic YouTube upload is disabled (DISABLE_AUTO_UPLOAD=True). Scheduler will not run.")
+        sys.exit(0)
+
     if args.once:
         attempt_once()
         return

@@ -57,6 +57,10 @@ def main() -> None:
     if missing and not args.dry_run:
         log.warning("Missing config: %s (content needs GEMINI_API_KEY)", ", ".join(missing))
 
+    if args.auto and config.DISABLE_AUTO_UPLOAD:
+        log.info("Automatic YouTube upload is disabled (DISABLE_AUTO_UPLOAD=True). Setting --skip-upload.")
+        args.skip_upload = True
+
     # In automatic mode, check the 24h gate BEFORE spending compute generating a
     # video that couldn't be uploaded anyway.
     if args.auto and not (args.dry_run or args.skip_upload):

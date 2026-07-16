@@ -37,6 +37,10 @@ def run_pipeline(
     n = n_shorts or config.SHORTS_PER_RUN
     uploaded_ids: list[str] = []
 
+    if config.DISABLE_AUTO_UPLOAD:
+        log.info("Automatic YouTube upload is disabled (DISABLE_AUTO_UPLOAD=True). Setting skip_upload=True.")
+        skip_upload = True
+
     session = get_session()
     topic_repo = TopicRepo(session)
     video_repo = VideoRepo(session)
